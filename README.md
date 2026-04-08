@@ -18,24 +18,56 @@ Based on [Geoffrey Huntley's Ralph pattern](https://ghuntley.com/ralph/).
 
 ## Setup
 
-### Option 1: Copy to your project
+### Option 1: Install Ralph globally
 
-Copy the ralph files into your project:
+Clone this repo and install Ralph into `~/.local`:
+
+```bash
+git clone https://github.com/YOUR_USERNAME/ralph.git
+cd ralph
+./install.sh
+```
+
+This installs:
+- `~/.local/bin/ralph`
+- `~/.local/share/ralph/ralph.sh`
+- `~/.local/share/ralph/prompt.md`
+- `~/.local/share/ralph/CLAUDE.md`
+
+If `~/.local/bin` is not already in your `PATH`, add this to `~/.zshenv` or your shell profile:
+
+```bash
+export PATH="$HOME/.local/bin:$PATH"
+```
+
+Then open a new terminal and run Ralph from any project root:
+
+```bash
+ralph --tool claude
+ralph --tool amp
+```
+
+Ralph automatically:
+- detects the current project root from git or `prd.json`
+- reads `prd.json` and `progress.txt` from that project
+- stores its own run metadata in `.ralph/`
+- keeps the shared prompts in the global install directory
+
+### Option 2: Copy to your project manually
+
+If you do not want a global install, copy the Ralph files into your project:
 
 ```bash
 # From your project root
 mkdir -p scripts/ralph
 cp /path/to/ralph/ralph.sh scripts/ralph/
-
-# Copy the prompt template for your AI tool of choice:
-cp /path/to/ralph/prompt.md scripts/ralph/prompt.md    # For Amp
-# OR
-cp /path/to/ralph/CLAUDE.md scripts/ralph/CLAUDE.md    # For Claude Code
+cp /path/to/ralph/prompt.md scripts/ralph/prompt.md
+cp /path/to/ralph/CLAUDE.md scripts/ralph/CLAUDE.md
 
 chmod +x scripts/ralph/ralph.sh
 ```
 
-### Option 2: Install skills globally (Amp)
+### Option 3: Install skills globally
 
 Copy the skills to your Amp or Claude config for use across all projects:
 
@@ -51,7 +83,7 @@ cp -r skills/prd ~/.claude/skills/
 cp -r skills/ralph ~/.claude/skills/
 ```
 
-### Option 3: Use as Claude Code Marketplace
+### Option 4: Use as Claude Code Marketplace
 
 Add the Ralph marketplace to Claude Code:
 
@@ -110,10 +142,16 @@ This creates `prd.json` with user stories structured for autonomous execution.
 ### 3. Run Ralph
 
 ```bash
-# Using Amp (default)
+# Using a global install
+ralph [max_iterations]
+
+# Using Claude Code with a global install
+ralph --tool claude [max_iterations]
+
+# Using a project-local copy
 ./scripts/ralph/ralph.sh [max_iterations]
 
-# Using Claude Code
+# Using a project-local copy with Claude Code
 ./scripts/ralph/ralph.sh --tool claude [max_iterations]
 ```
 
@@ -134,11 +172,15 @@ Ralph will:
 | File | Purpose |
 |------|---------|
 | `ralph.sh` | The bash loop that spawns fresh AI instances (supports `--tool amp` or `--tool claude`) |
+| `bin/ralph` | Global launcher installed to `~/.local/bin/ralph` |
 | `prompt.md` | Prompt template for Amp |
 | `CLAUDE.md` | Prompt template for Claude Code |
 | `prd.json` | User stories with `passes` status (the task list) |
 | `prd.json.example` | Example PRD format for reference |
 | `progress.txt` | Append-only learnings for future iterations |
+| `.ralph/` | Ralph metadata and archives stored per target project |
+| `install.sh` | Installs Ralph globally into `~/.local` |
+| `uninstall.sh` | Removes the global Ralph installation |
 | `skills/prd/` | Skill for generating PRDs (works with Amp and Claude Code) |
 | `skills/ralph/` | Skill for converting PRDs to JSON (works with Amp and Claude Code) |
 | `.claude-plugin/` | Plugin manifest for Claude Code marketplace discovery |
@@ -228,9 +270,11 @@ After copying `prompt.md` (for Amp) or `CLAUDE.md` (for Claude Code) to your pro
 - Include codebase conventions
 - Add common gotchas for your stack
 
+If you use the global install and want custom prompts per machine, edit the files in `~/.local/share/ralph/`.
+
 ## Archiving
 
-Ralph automatically archives previous runs when you start a new feature (different `branchName`). Archives are saved to `archive/YYYY-MM-DD-feature-name/`.
+Ralph automatically archives previous runs when you start a new feature (different `branchName`). Archives are saved to `.ralph/archive/YYYY-MM-DD-feature-name/` inside the target project.
 
 ## References
 
