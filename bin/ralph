@@ -1,0 +1,14 @@
+#!/bin/bash
+
+set -euo pipefail
+
+RALPH_HOME="${RALPH_HOME:-$HOME/.local/share/ralph}"
+RALPH_SCRIPT="$RALPH_HOME/ralph.sh"
+
+if [[ ! -x "$RALPH_SCRIPT" ]]; then
+  echo "Error: Ralph is not installed at $RALPH_SCRIPT"
+  echo "Run install.sh from the Ralph repository, or set RALPH_HOME."
+  exit 1
+fi
+
+exec "$RALPH_SCRIPT" "$@"

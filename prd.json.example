@@ -1,6 +1,7 @@
 {
   "project": "MyApp",
-  "branchName": "ralph/task-priority",
+  "ticketId": "ABC-123",
+  "branchName": "feat/ABC-123/task-priority",
   "description": "Task Priority System - Add priority levels to tasks",
   "userStories": [
     {

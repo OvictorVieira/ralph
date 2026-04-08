@@ -4,14 +4,14 @@ You are an autonomous coding agent working on a software project.
 
 ## Your Task
 
-1. Read the PRD at `prd.json` (in the same directory as this file)
-2. Read the progress log at `progress.txt` (check Codebase Patterns section first)
+1. Read the PRD at `prd.json` in the project root, or `tasks/prd.json` if the root file does not exist
+2. Read the progress log at `progress.txt` in the project root (check Codebase Patterns section first)
 3. Check you're on the correct branch from PRD `branchName`. If not, check it out or create from main.
 4. Pick the **highest priority** user story where `passes: false`
 5. Implement that single user story
 6. Run quality checks (e.g., typecheck, lint, test - use whatever your project requires)
 7. Update CLAUDE.md files if you discover reusable patterns (see below)
-8. If checks pass, commit ALL changes with message: `feat: [Story ID] - [Story Title]`
+8. If checks pass, commit the changes for this story using the project's commit message pattern. Group changes by logical unit of work, not by individual file. Prefer one commit when the story is a single coherent change, or a few commits when there are clearly distinct functional units such as implementation, refactor, and tests. Never include the story ID in the commit message. Never add `Co-authored-by` trailers. Use the current repository git author identity, especially the configured `user.email`, and never override it with a different email.
 9. Update the PRD to set `passes: true` for the completed story
 10. Append your progress to `progress.txt`
 
@@ -76,6 +76,12 @@ Only update CLAUDE.md if you have **genuinely reusable knowledge** that would he
 - Do NOT commit broken code
 - Keep changes focused and minimal
 - Follow existing code patterns
+- Follow the repository's commit message convention without including story IDs
+- Commit by logical context, not automatically by file
+- Prefer the smallest number of commits that still preserves clear functional context
+- Do not split commits without a concrete contextual benefit
+- Never add `Co-authored-by` trailers to commits
+- Always use the repository's configured git author identity
 
 ## Browser Testing (If Available)
 
@@ -102,3 +108,4 @@ If there are still stories with `passes: false`, end your response normally (ano
 - Commit frequently
 - Keep CI green
 - Read the Codebase Patterns section in progress.txt before starting
+- Assume the current working directory is the target project root

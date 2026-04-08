@@ -12,7 +12,7 @@ Converts existing PRDs to the prd.json format that Ralph uses for autonomous exe
 
 ## The Job
 
-Take a PRD (markdown file or text) and convert it to `prd.json` in your ralph directory.
+Take a PRD (markdown file or text) and convert it to `prd.json` in the current project root.
 
 ---
 
@@ -232,7 +232,7 @@ Add ability to mark tasks with different statuses.
 
 ## Archiving Previous Runs
 
-**Before writing a new prd.json, check if there is an existing one from a different feature:**
+**Before writing a new prd.json in the current project root, check if there is an existing one from a different feature:**
 
 1. Read the current `prd.json` if it exists
 2. Check if `branchName` differs from the new feature's branch name
