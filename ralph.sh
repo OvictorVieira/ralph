@@ -1,18 +1,20 @@
 #!/bin/bash
 # Ralph Wiggum - Long-running AI agent loop
-# Usage: ralph [--tool amp|claude] [max_iterations]
+# Usage: ralph [--tool amp|claude|gemini|codex] [max_iterations]
 
 set -euo pipefail
 
 print_usage() {
   cat <<'EOF'
-Usage: ralph [--tool amp|claude] [max_iterations]
+Usage: ralph [--tool amp|claude|gemini|codex] [max_iterations]
 
 Options:
-  --tool TOOL        Agent to run. Supported: amp, claude
+  --tool TOOL        Agent to run. Supported: amp, claude, gemini, codex
   --tool=TOOL        Same as above
   --claude           Shortcut for --tool claude
   --amp              Shortcut for --tool amp
+  --gemini           Shortcut for --tool gemini
+  --codex            Shortcut for --tool codex
   -h, --help         Show this help message
 
 Arguments:
@@ -289,6 +291,14 @@ while [[ $# -gt 0 ]]; do
       TOOL="amp"
       shift
       ;;
+    --gemini)
+      TOOL="gemini"
+      shift
+      ;;
+    --codex)
+      TOOL="codex"
+      shift
+      ;;
     --tool)
       if [[ $# -lt 2 || -z "${2:-}" ]]; then
         echo "Error: --tool requires a value."
@@ -316,8 +326,8 @@ while [[ $# -gt 0 ]]; do
 done
 
 # Validate tool choice
-if [[ "$TOOL" != "amp" && "$TOOL" != "claude" ]]; then
-  echo "Error: Invalid tool '$TOOL'. Must be 'amp' or 'claude'."
+if [[ "$TOOL" != "amp" && "$TOOL" != "claude" && "$TOOL" != "gemini" && "$TOOL" != "codex" ]]; then
+  echo "Error: Invalid tool '$TOOL'. Must be 'amp', 'claude', 'gemini', or 'codex'."
   exit 1
 fi
 
@@ -330,6 +340,8 @@ ARCHIVE_DIR="$STATE_DIR/archive"
 LAST_BRANCH_FILE="$STATE_DIR/.last-branch"
 CLAUDE_PROMPT_FILE="$SCRIPT_DIR/CLAUDE.md"
 AMP_PROMPT_FILE="$SCRIPT_DIR/prompt.md"
+GEMINI_PROMPT_FILE="$SCRIPT_DIR/GEMINI.md"
+CODEX_PROMPT_FILE="$SCRIPT_DIR/CODEX.md"
 
 if ! command -v jq >/dev/null 2>&1; then
   echo "Error: jq is required but was not found in PATH."
@@ -343,6 +355,16 @@ fi
 
 if [[ "$TOOL" == "amp" ]] && ! command -v amp >/dev/null 2>&1; then
   echo "Error: amp is required but was not found in PATH."
+  exit 1
+fi
+
+if [[ "$TOOL" == "gemini" ]] && ! command -v gemini >/dev/null 2>&1; then
+  echo "Error: gemini is required but was not found in PATH."
+  exit 1
+fi
+
+if [[ "$TOOL" == "codex" ]] && ! command -v codex >/dev/null 2>&1; then
+  echo "Error: codex is required but was not found in PATH."
   exit 1
 fi
 
@@ -428,6 +450,8 @@ if [ ! -f "$PROGRESS_FILE" ]; then
   echo "---" >> "$PROGRESS_FILE"
 fi
 
+cd "$PROJECT_ROOT"
+
 echo "Starting Ralph - Tool: $TOOL - Max iterations: $MAX_ITERATIONS"
 echo "Project root: $PROJECT_ROOT"
 echo "PRD file: $PRD_FILE"
@@ -449,9 +473,25 @@ for i in $(seq 1 $MAX_ITERATIONS); do
       exit 1
     fi
     OUTPUT=$(amp --dangerously-allow-all < "$AMP_PROMPT_FILE" 2>&1 | tee /dev/stderr) || true
-  else
+  elif [[ "$TOOL" == "claude" ]]; then
+    if [[ ! -f "$CLAUDE_PROMPT_FILE" ]]; then
+      echo "Error: Missing claude prompt file: $CLAUDE_PROMPT_FILE"
+      exit 1
+    fi
     # Claude Code: use --dangerously-skip-permissions for autonomous operation, --print for output
     OUTPUT=$(claude --model opus --dangerously-skip-permissions --print < "$CLAUDE_PROMPT_FILE" 2>&1 | tee /dev/stderr) || true
+  elif [[ "$TOOL" == "gemini" ]]; then
+    if [[ ! -f "$GEMINI_PROMPT_FILE" ]]; then
+      echo "Error: Missing gemini prompt file: $GEMINI_PROMPT_FILE"
+      exit 1
+    fi
+    OUTPUT=$(gemini --yolo --prompt "$(<"$GEMINI_PROMPT_FILE")" 2>&1 | tee /dev/stderr) || true
+  else
+    if [[ ! -f "$CODEX_PROMPT_FILE" ]]; then
+      echo "Error: Missing codex prompt file: $CODEX_PROMPT_FILE"
+      exit 1
+    fi
+    OUTPUT=$(codex exec --dangerously-bypass-approvals-and-sandbox -C "$PROJECT_ROOT" - < "$CODEX_PROMPT_FILE" 2>&1 | tee /dev/stderr) || true
   fi
   
   # Check for completion signal

@@ -2,7 +2,7 @@
 
 ![Ralph](ralph.webp)
 
-Ralph is an autonomous AI agent loop that runs AI coding tools ([Amp](https://ampcode.com) or [Claude Code](https://docs.anthropic.com/en/docs/claude-code)) repeatedly until all PRD items are complete. Each iteration is a fresh instance with clean context. Memory persists via git history, `progress.txt`, and `prd.json`.
+Ralph is an autonomous AI agent loop that runs AI coding tools ([Amp](https://ampcode.com), [Claude Code](https://docs.anthropic.com/en/docs/claude-code), Gemini CLI, or Codex CLI) repeatedly until all PRD items are complete. Each iteration is a fresh instance with clean context. Memory persists via git history, `progress.txt`, and `prd.json`.
 
 Based on [Geoffrey Huntley's Ralph pattern](https://ghuntley.com/ralph/).
 
@@ -13,6 +13,8 @@ Based on [Geoffrey Huntley's Ralph pattern](https://ghuntley.com/ralph/).
 - One of the following AI coding tools installed and authenticated:
   - [Amp CLI](https://ampcode.com) (default)
   - [Claude Code](https://docs.anthropic.com/en/docs/claude-code) (`npm install -g @anthropic-ai/claude-code`)
+  - Gemini CLI
+  - Codex CLI
 - `jq` installed (`brew install jq` on macOS)
 - A git repository for your project
 
@@ -33,6 +35,8 @@ This installs:
 - `~/.local/share/ralph/ralph.sh`
 - `~/.local/share/ralph/prompt.md`
 - `~/.local/share/ralph/CLAUDE.md`
+- `~/.local/share/ralph/GEMINI.md`
+- `~/.local/share/ralph/CODEX.md`
 
 If `~/.local/bin` is not already in your `PATH`, add this to `~/.zshenv` or your shell profile:
 
@@ -45,6 +49,8 @@ Then open a new terminal and run Ralph from any project root:
 ```bash
 ralph --tool claude
 ralph --tool amp
+ralph --tool gemini
+ralph --tool codex
 ```
 
 Ralph automatically:
@@ -63,6 +69,8 @@ mkdir -p scripts/ralph
 cp /path/to/ralph/ralph.sh scripts/ralph/
 cp /path/to/ralph/prompt.md scripts/ralph/prompt.md
 cp /path/to/ralph/CLAUDE.md scripts/ralph/CLAUDE.md
+cp /path/to/ralph/GEMINI.md scripts/ralph/GEMINI.md
+cp /path/to/ralph/CODEX.md scripts/ralph/CODEX.md
 
 chmod +x scripts/ralph/ralph.sh
 ```
@@ -148,14 +156,26 @@ ralph [max_iterations]
 # Using Claude Code with a global install
 ralph --tool claude [max_iterations]
 
+# Using Gemini with a global install
+ralph --tool gemini [max_iterations]
+
+# Using Codex with a global install
+ralph --tool codex [max_iterations]
+
 # Using a project-local copy
 ./scripts/ralph/ralph.sh [max_iterations]
 
 # Using a project-local copy with Claude Code
 ./scripts/ralph/ralph.sh --tool claude [max_iterations]
+
+# Using a project-local copy with Gemini
+./scripts/ralph/ralph.sh --tool gemini [max_iterations]
+
+# Using a project-local copy with Codex
+./scripts/ralph/ralph.sh --tool codex [max_iterations]
 ```
 
-Default is 10 iterations. Use `--tool amp` or `--tool claude` to select your AI coding tool.
+Default is 10 iterations. Use `--tool amp`, `--tool claude`, `--tool gemini`, or `--tool codex` to select your AI coding tool.
 
 Ralph will:
 1. Create a feature branch (from PRD `branchName`)
@@ -171,10 +191,12 @@ Ralph will:
 
 | File | Purpose |
 |------|---------|
-| `ralph.sh` | The bash loop that spawns fresh AI instances (supports `--tool amp` or `--tool claude`) |
+| `ralph.sh` | The bash loop that spawns fresh AI instances (supports `--tool amp`, `--tool claude`, `--tool gemini`, or `--tool codex`) |
 | `bin/ralph` | Global launcher installed to `~/.local/bin/ralph` |
 | `prompt.md` | Prompt template for Amp |
 | `CLAUDE.md` | Prompt template for Claude Code |
+| `GEMINI.md` | Prompt template for Gemini CLI |
+| `CODEX.md` | Prompt template for Codex CLI |
 | `prd.json` | User stories with `passes` status (the task list) |
 | `prd.json.example` | Example PRD format for reference |
 | `progress.txt` | Append-only learnings for future iterations |
@@ -204,7 +226,7 @@ npm run dev
 
 ### Each Iteration = Fresh Context
 
-Each iteration spawns a **new AI instance** (Amp or Claude Code) with clean context. The only memory between iterations is:
+Each iteration spawns a **new AI instance** (Amp, Claude Code, Gemini CLI, or Codex CLI) with clean context. The only memory between iterations is:
 - Git history (commits from previous iterations)
 - `progress.txt` (learnings and context)
 - `prd.json` (which stories are done)
