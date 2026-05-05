@@ -338,10 +338,6 @@ PROGRESS_FILE="$PROJECT_ROOT/progress.txt"
 STATE_DIR="$PROJECT_ROOT/.ralph"
 ARCHIVE_DIR="$STATE_DIR/archive"
 LAST_BRANCH_FILE="$STATE_DIR/.last-branch"
-CLAUDE_PROMPT_FILE="$SCRIPT_DIR/CLAUDE.md"
-AMP_PROMPT_FILE="$SCRIPT_DIR/prompt.md"
-GEMINI_PROMPT_FILE="$SCRIPT_DIR/GEMINI.md"
-CODEX_PROMPT_FILE="$SCRIPT_DIR/CODEX.md"
 
 if ! command -v jq >/dev/null 2>&1; then
   echo "Error: jq is required but was not found in PATH."
@@ -403,8 +399,27 @@ if command -v git >/dev/null 2>&1; then
   fi
 fi
 
-if [[ ! -f "$CLAUDE_PROMPT_FILE" ]]; then
-  echo "Error: Missing Claude prompt file: $CLAUDE_PROMPT_FILE"
+AMP_PROMPT_FILE_NAME="AMP.md"
+CLAUDE_PROMPT_FILE_NAME="CLAUDE.md"
+GEMINI_PROMPT_FILE_NAME="GEMINI.md"
+CODEX_PROMPT_FILE_NAME="CODEX.md"
+
+case "$TOOL" in
+  claude) PROMPT_FILE_NAME="$CLAUDE_PROMPT_FILE_NAME" ;;
+  gemini) PROMPT_FILE_NAME="$GEMINI_PROMPT_FILE_NAME" ;;
+  codex)  PROMPT_FILE_NAME="$CODEX_PROMPT_FILE_NAME" ;;
+  amp)    PROMPT_FILE_NAME="$AMP_PROMPT_FILE_NAME" ;;
+esac
+
+# Check for local override first, then fall back to script directory
+if [[ -f "$PROJECT_ROOT/$PROMPT_FILE_NAME" ]]; then
+  PROMPT_FILE="$PROJECT_ROOT/$PROMPT_FILE_NAME"
+else
+  PROMPT_FILE="$SCRIPT_DIR/$PROMPT_FILE_NAME"
+fi
+
+if [[ ! -f "$PROMPT_FILE" ]]; then
+  echo "Error: Missing prompt file for $TOOL: $PROMPT_FILE"
   exit 1
 fi
 
@@ -468,30 +483,14 @@ for i in $(seq 1 $MAX_ITERATIONS); do
 
   # Run the selected tool with the ralph prompt
   if [[ "$TOOL" == "amp" ]]; then
-    if [[ ! -f "$AMP_PROMPT_FILE" ]]; then
-      echo "Error: Missing amp prompt file: $AMP_PROMPT_FILE"
-      exit 1
-    fi
-    OUTPUT=$(amp --dangerously-allow-all < "$AMP_PROMPT_FILE" 2>&1 | tee /dev/stderr) || true
+    OUTPUT=$(amp --dangerously-allow-all < "$PROMPT_FILE" 2>&1 | tee /dev/stderr) || true
   elif [[ "$TOOL" == "claude" ]]; then
-    if [[ ! -f "$CLAUDE_PROMPT_FILE" ]]; then
-      echo "Error: Missing claude prompt file: $CLAUDE_PROMPT_FILE"
-      exit 1
-    fi
     # Claude Code: use --dangerously-skip-permissions for autonomous operation, --print for output
-    OUTPUT=$(claude --model opus --dangerously-skip-permissions --print < "$CLAUDE_PROMPT_FILE" 2>&1 | tee /dev/stderr) || true
+    OUTPUT=$(claude --model opus --dangerously-skip-permissions --print < "$PROMPT_FILE" 2>&1 | tee /dev/stderr) || true
   elif [[ "$TOOL" == "gemini" ]]; then
-    if [[ ! -f "$GEMINI_PROMPT_FILE" ]]; then
-      echo "Error: Missing gemini prompt file: $GEMINI_PROMPT_FILE"
-      exit 1
-    fi
-    OUTPUT=$(gemini --yolo --prompt "$(<"$GEMINI_PROMPT_FILE")" 2>&1 | tee /dev/stderr) || true
+    OUTPUT=$(gemini --yolo --prompt "$(<"$PROMPT_FILE")" 2>&1 | tee /dev/stderr) || true
   else
-    if [[ ! -f "$CODEX_PROMPT_FILE" ]]; then
-      echo "Error: Missing codex prompt file: $CODEX_PROMPT_FILE"
-      exit 1
-    fi
-    OUTPUT=$(codex exec --dangerously-bypass-approvals-and-sandbox -C "$PROJECT_ROOT" - < "$CODEX_PROMPT_FILE" 2>&1 | tee /dev/stderr) || true
+    OUTPUT=$(codex exec --dangerously-bypass-approvals-and-sandbox -C "$PROJECT_ROOT" - < "$PROMPT_FILE" 2>&1 | tee /dev/stderr) || true
   fi
   
   # Check for completion signal

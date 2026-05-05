@@ -33,7 +33,7 @@ cd ralph
 This installs:
 - `~/.local/bin/ralph`
 - `~/.local/share/ralph/ralph.sh`
-- `~/.local/share/ralph/prompt.md`
+- `~/.local/share/ralph/AMP.md`
 - `~/.local/share/ralph/CLAUDE.md`
 - `~/.local/share/ralph/GEMINI.md`
 - `~/.local/share/ralph/CODEX.md`
@@ -67,7 +67,7 @@ If you do not want a global install, copy the Ralph files into your project:
 # From your project root
 mkdir -p scripts/ralph
 cp /path/to/ralph/ralph.sh scripts/ralph/
-cp /path/to/ralph/prompt.md scripts/ralph/prompt.md
+cp /path/to/ralph/AMP.md scripts/ralph/AMP.md
 cp /path/to/ralph/CLAUDE.md scripts/ralph/CLAUDE.md
 cp /path/to/ralph/GEMINI.md scripts/ralph/GEMINI.md
 cp /path/to/ralph/CODEX.md scripts/ralph/CODEX.md
@@ -193,7 +193,7 @@ Ralph will:
 |------|---------|
 | `ralph.sh` | The bash loop that spawns fresh AI instances (supports `--tool amp`, `--tool claude`, `--tool gemini`, or `--tool codex`) |
 | `bin/ralph` | Global launcher installed to `~/.local/bin/ralph` |
-| `prompt.md` | Prompt template for Amp |
+| `AMP.md` | Prompt template for Amp |
 | `CLAUDE.md` | Prompt template for Claude Code |
 | `GEMINI.md` | Prompt template for Gemini CLI |
 | `CODEX.md` | Prompt template for Codex CLI |
@@ -287,7 +287,7 @@ git log --oneline -10
 
 ## Customizing the Prompt
 
-After copying `prompt.md` (for Amp) or `CLAUDE.md` (for Claude Code) to your project, customize it for your project:
+After copying `AMP.md` (for Amp) or `CLAUDE.md` (for Claude Code) to your project, customize it for your project:
 - Add project-specific quality check commands
 - Include codebase conventions
 - Add common gotchas for your stack

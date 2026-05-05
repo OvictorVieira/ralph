@@ -10,7 +10,7 @@ SHARE_DIR="$INSTALL_ROOT/share/ralph"
 mkdir -p "$BIN_DIR" "$SHARE_DIR"
 
 install -m 755 "$SCRIPT_DIR/ralph.sh" "$SHARE_DIR/ralph.sh"
-install -m 644 "$SCRIPT_DIR/prompt.md" "$SHARE_DIR/prompt.md"
+install -m 644 "$SCRIPT_DIR/AMP.md" "$SHARE_DIR/AMP.md"
 install -m 644 "$SCRIPT_DIR/CLAUDE.md" "$SHARE_DIR/CLAUDE.md"
 install -m 644 "$SCRIPT_DIR/GEMINI.md" "$SHARE_DIR/GEMINI.md"
 install -m 644 "$SCRIPT_DIR/CODEX.md" "$SHARE_DIR/CODEX.md"

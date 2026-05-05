@@ -38,7 +38,7 @@ ralph --tool codex [max_iterations]
 
 - `ralph.sh` - The bash loop that spawns fresh AI instances (supports `--tool amp`, `--tool claude`, `--tool gemini`, or `--tool codex`)
 - `bin/ralph` - Global launcher installed into `~/.local/bin/ralph`
-- `prompt.md` - Instructions given to each AMP instance
+- `AMP.md` - Instructions given to each AMP instance
 - `CLAUDE.md` - Instructions given to each Claude Code instance
 - `GEMINI.md` - Instructions given to each Gemini CLI instance
 - `CODEX.md` - Instructions given to each Codex CLI instance
