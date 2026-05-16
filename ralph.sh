@@ -6,7 +6,7 @@ set -euo pipefail
 
 print_usage() {
   cat <<'EOF'
-Usage: ralph [--tool amp|claude|gemini|codex] [max_iterations]
+Usage: ralph [--tool amp|claude|gemini|codex] [--effort low|medium|high|max] [max_iterations]
 
 Options:
   --tool TOOL        Agent to run. Supported: amp, claude, gemini, codex
@@ -15,6 +15,8 @@ Options:
   --amp              Shortcut for --tool amp
   --gemini           Shortcut for --tool gemini
   --codex            Shortcut for --tool codex
+  --effort LEVEL     Effort level for claude (low, medium, high, max). Default: medium
+  --effort=LEVEL     Same as above
   -h, --help         Show this help message
 
 Arguments:
@@ -276,6 +278,7 @@ resolve_git_identity_from_history() {
 # Parse arguments
 TOOL="amp"  # Default to amp for backwards compatibility
 MAX_ITERATIONS=10
+CLAUDE_EFFORT="medium"
 
 while [[ $# -gt 0 ]]; do
   case $1 in
@@ -310,6 +313,19 @@ while [[ $# -gt 0 ]]; do
       ;;
     --tool=*)
       TOOL="${1#*=}"
+      shift
+      ;;
+    --effort)
+      if [[ $# -lt 2 || -z "${2:-}" ]]; then
+        echo "Error: --effort requires a value (low, medium, high, max)."
+        print_usage
+        exit 1
+      fi
+      CLAUDE_EFFORT="$2"
+      shift 2
+      ;;
+    --effort=*)
+      CLAUDE_EFFORT="${1#*=}"
       shift
       ;;
     *)
@@ -486,7 +502,7 @@ for i in $(seq 1 $MAX_ITERATIONS); do
     OUTPUT=$(amp --dangerously-allow-all < "$PROMPT_FILE" 2>&1 | tee /dev/stderr) || true
   elif [[ "$TOOL" == "claude" ]]; then
     # Claude Code: use --dangerously-skip-permissions for autonomous operation, --print for output
-    OUTPUT=$(claude --model opus --dangerously-skip-permissions --print < "$PROMPT_FILE" 2>&1 | tee /dev/stderr) || true
+    OUTPUT=$(claude --model opus --effort "$CLAUDE_EFFORT" --dangerously-skip-permissions --print < "$PROMPT_FILE" 2>&1 | tee /dev/stderr) || true
   elif [[ "$TOOL" == "gemini" ]]; then
     OUTPUT=$(gemini --yolo --prompt "$(<"$PROMPT_FILE")" 2>&1 | tee /dev/stderr) || true
   else
