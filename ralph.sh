@@ -6,24 +6,32 @@ set -euo pipefail
 
 print_usage() {
   cat <<'EOF'
-Usage: ralph [--tool amp|claude|gemini|codex] [--model MODEL]
-             [--effort low|medium|high|max] [max_iterations]
+Usage: ralph [--tool claude|codex|agy|cursor|opencode|amp|gemini] [--model MODEL]
+             [--effort low|medium|high|xhigh|max] [max_iterations]
 
 Options:
-  --tool TOOL        Agent to run. Supported: amp, claude, gemini, codex
+  --tool TOOL        Agent to run. Supported: claude, codex, agy, cursor,
+                     opencode, amp, gemini
   --tool=TOOL        Same as above
   --claude           Shortcut for --tool claude
-  --amp              Shortcut for --tool amp
-  --gemini           Shortcut for --tool gemini
   --codex            Shortcut for --tool codex
-  --model MODEL      Model to run. Defaults to the tool's own configured model.
+  --agy              Shortcut for --tool agy       (Antigravity)
+  --cursor           Shortcut for --tool cursor    (cursor-agent)
+  --opencode         Shortcut for --tool opencode
+  --amp              Shortcut for --tool amp
+  --gemini           Shortcut for --tool gemini    (superseded by agy)
+  --model MODEL      Model to run, by hand. Defaults to the tool's own configured
+                     model. Soft-checked against what the tool advertises.
   --model=MODEL      Same as above
-  --list-models      Show, per tool, the model it is configured with and any it
-                     advertises. Queries the installed CLIs rather than a table
-                     baked into Ralph.
-  --effort LEVEL     Reasoning effort (low, medium, high, max). Default: medium.
-                     Supported by claude and codex; rejected for the others
-                     instead of being silently dropped.
+  --list-models      Show, per tool, its configured model, the models it
+                     advertises, and the effort levels it accepts. Queries the
+                     installed CLIs rather than a table baked into Ralph.
+  --effort LEVEL     Reasoning effort: low, medium, high, xhigh, max. Ralph takes
+                     one vocabulary and translates it per tool — a flag for
+                     claude and agy, a config key for codex, a bracket override
+                     on the model for cursor, --variant for opencode. A level the
+                     chosen tool does not accept is an error, not a downgrade.
+                     Default: medium.
   --effort=LEVEL     Same as above
   -h, --help         Show this help message
 
@@ -223,17 +231,68 @@ resolve_git_identity_from_history() {
   fi
 }
 
-SUPPORTED_TOOLS="amp claude gemini codex"
+SUPPORTED_TOOLS="amp claude codex agy cursor opencode gemini"
 
-# Which tools can actually be told how hard to think, and how.
+# opencode installs to ~/.opencode/bin and does not always land on PATH.
+resolve_opencode_bin() {
+  if command -v opencode >/dev/null 2>&1; then
+    command -v opencode
+    return 0
+  fi
+  if [[ -x "$HOME/.opencode/bin/opencode" ]]; then
+    echo "$HOME/.opencode/bin/opencode"
+    return 0
+  fi
+  return 1
+}
+
+# Reasoning effort, per tool.
 #
-# Passing --effort to a tool that has no such knob used to be silently accepted
-# and silently dropped: the flag only ever reached claude. Now the unsupported
-# combination says so.
-tool_supports_effort() {
+# Ralph takes one vocabulary from the user — low, medium, high, xhigh, max — and
+# hands each tool the spelling and the mechanism that tool actually wants. They
+# do not agree on any of it: claude has a flag, codex has a config key, cursor
+# encodes it inside the model string, agy has a flag with a narrower range, and
+# amp has nothing.
+#
+# Every list below came from the CLI itself, not from a vendor page:
+#
+#   claude  `claude --effort bogus` answers
+#           "Valid values: low, medium, high, xhigh, max."
+#   agy     `agy --help` documents "--effort  Reasoning effort for the current
+#           CLI session (low|medium|high)"
+#   codex   `codex exec -c model_reasoning_effort=bogus` is accepted and
+#           forwarded verbatim — the CLI does no validation at all, so the list
+#           here is Ralph's own guard rather than an echo of the tool's.
+#   cursor  `cursor-agent --help` shows effort as a bracket override on the
+#           model: 'claude-opus-4-8[context=1m,effort=high,fast=false]'. Only
+#           `effort=high` is exemplified, so Ralph accepts its own vocabulary
+#           and lets Cursor reject server-side rather than inventing an enum.
+#   opencode
+#           `opencode run --help` documents "--variant  model variant
+#           (provider-specific reasoning effort, e.g., high, max, minimal)".
+#           Provider-specific by definition, so the same passthrough applies.
+tool_effort_values() {
   case "$1" in
-    claude|codex) return 0 ;;
-    *) return 1 ;;
+    claude)   echo "low medium high xhigh max" ;;
+    agy)      echo "low medium high" ;;
+    codex)    echo "minimal low medium high xhigh" ;;
+    cursor)   echo "low medium high xhigh max" ;;
+    opencode) echo "minimal low medium high max" ;;
+  esac
+}
+
+tool_supports_effort() {
+  [[ -n "$(tool_effort_values "$1")" ]]
+}
+
+tool_effort_mechanism() {
+  case "$1" in
+    claude)   echo "--effort flag" ;;
+    agy)      echo "--effort flag" ;;
+    codex)    echo "model_reasoning_effort config key" ;;
+    cursor)   echo "effort= override inside --model" ;;
+    opencode) echo "--variant flag" ;;
+    *)        echo "not supported by this CLI" ;;
   esac
 }
 
@@ -260,9 +319,13 @@ tool_configured_model() {
   esac
 }
 
-# Claude Code documents its aliases and one full model id inside `--model`'s
-# own help text. That is the only self-describing source any of these CLIs has,
-# so parse it rather than guess.
+# Two of these CLIs can enumerate their own models; the rest cannot. Ask the
+# ones that can, parse the one that documents aliases in its help text, and
+# report honestly for the rest instead of shipping a table that goes stale.
+#
+# Both listing commands need the user signed in. A signed-out CLI answers with
+# an auth error, which is not a model list — so it returns nothing and Ralph
+# falls back to passing --model through unvalidated.
 tool_advertised_models() {
   case "$1" in
     claude)
@@ -274,6 +337,65 @@ tool_advertised_models() {
         | sort -u \
         | tr '\n' ' '
       ;;
+    agy)
+      command -v agy >/dev/null 2>&1 || return 0
+      agy models 2>/dev/null \
+        | grep -vEi 'fetching|error|sign in|log in' \
+        | grep -Eo '[a-zA-Z0-9][a-zA-Z0-9._-]{2,}' \
+        | sort -u \
+        | tr '\n' ' '
+      ;;
+    cursor)
+      command -v cursor-agent >/dev/null 2>&1 || return 0
+      cursor-agent --list-models 2>/dev/null \
+        | grep -vEi 'error|authentication|login|api-key' \
+        | grep -Eo '[a-zA-Z0-9][a-zA-Z0-9._-]{2,}' \
+        | sort -u \
+        | tr '\n' ' '
+      ;;
+    opencode)
+      local bin
+      bin="$(resolve_opencode_bin)" || return 0
+      # The only one of these that answers without being signed in, and the
+      # only one whose ids are already provider-qualified.
+      "$bin" models 2>/dev/null \
+        | grep -E '^[a-zA-Z0-9._-]+/[a-zA-Z0-9._-]+$' \
+        | sort -u \
+        | tr '\n' ' '
+      ;;
+  esac
+}
+
+# Cursor has no --effort flag: effort rides inside the model string as a bracket
+# override. Composing it needs a model to attach to, so --effort without --model
+# has nothing to modify.
+cursor_model_argument() {
+  local model="$1" effort_explicit="$2" effort="$3"
+
+  if [[ "$effort_explicit" -eq 1 ]]; then
+    if [[ -z "$model" ]]; then
+      return 1
+    fi
+    if [[ "$model" == *"["*"]" ]]; then
+      # Caller already wrote their own override block — respect it verbatim
+      # rather than producing a second one Cursor would have to reconcile.
+      printf '%s' "$model"
+      return 0
+    fi
+    printf '%s[effort=%s]' "$model" "$effort"
+    return 0
+  fi
+
+  printf '%s' "$model"
+}
+
+# The tool name is not always the binary name: cursor ships `cursor-agent`, and
+# opencode installs outside PATH.
+tool_binary_path() {
+  case "$1" in
+    cursor)   command -v cursor-agent 2>/dev/null ;;
+    opencode) resolve_opencode_bin ;;
+    *)        command -v "$1" 2>/dev/null ;;
   esac
 }
 
@@ -283,7 +405,7 @@ print_models() {
   echo "Models"
   echo ""
   for tool in $SUPPORTED_TOOLS; do
-    if command -v "$tool" >/dev/null 2>&1; then
+    if tool_binary_path "$tool" >/dev/null 2>&1; then
       installed="installed"
     else
       installed="not installed"
@@ -306,16 +428,24 @@ print_models() {
     fi
 
     if tool_supports_effort "$tool"; then
-      printf '    effort             : supported\n'
+      printf '    effort             : %s  (via %s)\n' \
+        "$(tool_effort_values "$tool")" "$(tool_effort_mechanism "$tool")"
     else
       printf '    effort             : not supported by this CLI\n'
     fi
     echo ""
   done
   cat <<'EOF'
---model accepts any value the tool accepts; Ralph does not validate it.
-With no --model, each tool uses its own configured default rather than one
-Ralph picked for you.
+--model is passed to the tool as given. Where a CLI can enumerate its models,
+Ralph warns on a value that is not in the list but still runs it — a full model
+id is often valid without being advertised.
+
+--effort takes one vocabulary (low, medium, high, xhigh, max) and Ralph
+translates it per tool. A level the chosen tool does not accept is an error, not
+a silent downgrade.
+
+With no --model, each tool uses its own configured default rather than one Ralph
+picked for you.
 EOF
 }
 
@@ -346,6 +476,18 @@ while [[ $# -gt 0 ]]; do
       ;;
     --codex)
       TOOL="codex"
+      shift
+      ;;
+    --agy)
+      TOOL="agy"
+      shift
+      ;;
+    --cursor)
+      TOOL="cursor"
+      shift
+      ;;
+    --opencode)
+      TOOL="opencode"
       shift
       ;;
     --tool)
@@ -406,16 +548,54 @@ while [[ $# -gt 0 ]]; do
 done
 
 # Validate tool choice
-if [[ "$TOOL" != "amp" && "$TOOL" != "claude" && "$TOOL" != "gemini" && "$TOOL" != "codex" ]]; then
-  echo "Error: Invalid tool '$TOOL'. Must be 'amp', 'claude', 'gemini', or 'codex'."
-  exit 1
+case " $SUPPORTED_TOOLS " in
+  *" $TOOL "*) ;;
+  *)
+    echo "Error: Invalid tool '$TOOL'. Must be one of: $SUPPORTED_TOOLS."
+    exit 1
+    ;;
+esac
+
+# Effort is validated against what the chosen tool accepts, not against a single
+# global list. A level one tool understands and another does not is an error
+# here rather than a silent downgrade at the far end.
+if [[ "$EFFORT_EXPLICIT" -eq 1 ]]; then
+  TOOL_EFFORTS="$(tool_effort_values "$TOOL")"
+  if [[ -z "$TOOL_EFFORTS" ]]; then
+    echo "Error: --effort is not supported by '$TOOL'."
+    echo "       Run 'ralph --list-models' to see what each installed tool exposes."
+    exit 1
+  fi
+  case " $TOOL_EFFORTS " in
+    *" $EFFORT "*) ;;
+    *)
+      echo "Error: '$TOOL' does not accept effort '$EFFORT'."
+      echo "       Accepts: $TOOL_EFFORTS  (via $(tool_effort_mechanism "$TOOL"))"
+      exit 1
+      ;;
+  esac
+  if [[ "$TOOL" == "cursor" && -z "$MODEL" ]]; then
+    echo "Error: cursor carries effort inside the model string, so --effort needs --model."
+    echo "       Example: ralph --cursor --model sonnet-4-thinking --effort high"
+    exit 1
+  fi
 fi
 
-if [[ "$EFFORT_EXPLICIT" -eq 1 ]] && ! tool_supports_effort "$TOOL"; then
-  echo "Error: --effort is not supported by '$TOOL'."
-  echo "       Supported: claude (--effort), codex (model_reasoning_effort)."
-  echo "       Run 'ralph --list-models' to see what each installed tool exposes."
-  exit 1
+# Model is only soft-checked. Where a CLI can enumerate its models, a value
+# outside that list is worth flagging — but a full model id is frequently valid
+# without being advertised, so this warns and runs rather than refusing.
+if [[ -n "$MODEL" ]]; then
+  KNOWN_MODELS="$(tool_advertised_models "$TOOL" || true)"
+  if [[ -n "${KNOWN_MODELS// /}" ]]; then
+    case " $KNOWN_MODELS " in
+      *" $MODEL "*) ;;
+      *)
+        echo "Warning: '$MODEL' is not in the model list '$TOOL' advertises."
+        echo "         Known: ${KNOWN_MODELS% }"
+        echo "         Running it anyway — the tool has the final say."
+        ;;
+    esac
+  fi
 fi
 
 SCRIPT_DIR="$(resolve_script_dir)"
@@ -449,6 +629,23 @@ fi
 if [[ "$TOOL" == "codex" ]] && ! command -v codex >/dev/null 2>&1; then
   echo "Error: codex is required but was not found in PATH."
   exit 1
+fi
+
+if [[ "$TOOL" == "agy" ]] && ! command -v agy >/dev/null 2>&1; then
+  echo "Error: agy (Antigravity) is required but was not found in PATH."
+  exit 1
+fi
+
+if [[ "$TOOL" == "cursor" ]] && ! command -v cursor-agent >/dev/null 2>&1; then
+  echo "Error: cursor-agent is required but was not found in PATH."
+  exit 1
+fi
+
+if [[ "$TOOL" == "opencode" ]]; then
+  OPENCODE_BIN="$(resolve_opencode_bin)" || {
+    echo "Error: opencode was not found in PATH or at ~/.opencode/bin/opencode."
+    exit 1
+  }
 fi
 
 if [[ -z "$PRD_FILE" || ! -f "$PRD_FILE" ]]; then
@@ -504,12 +701,18 @@ AMP_PROMPT_FILE_NAME="AMP.md"
 CLAUDE_PROMPT_FILE_NAME="CLAUDE.md"
 GEMINI_PROMPT_FILE_NAME="GEMINI.md"
 CODEX_PROMPT_FILE_NAME="CODEX.md"
+AGY_PROMPT_FILE_NAME="AGY.md"
+CURSOR_PROMPT_FILE_NAME="CURSOR.md"
+OPENCODE_PROMPT_FILE_NAME="OPENCODE.md"
 
 case "$TOOL" in
-  claude) PROMPT_FILE_NAME="$CLAUDE_PROMPT_FILE_NAME" ;;
-  gemini) PROMPT_FILE_NAME="$GEMINI_PROMPT_FILE_NAME" ;;
-  codex)  PROMPT_FILE_NAME="$CODEX_PROMPT_FILE_NAME" ;;
-  amp)    PROMPT_FILE_NAME="$AMP_PROMPT_FILE_NAME" ;;
+  claude)   PROMPT_FILE_NAME="$CLAUDE_PROMPT_FILE_NAME" ;;
+  gemini)   PROMPT_FILE_NAME="$GEMINI_PROMPT_FILE_NAME" ;;
+  codex)    PROMPT_FILE_NAME="$CODEX_PROMPT_FILE_NAME" ;;
+  amp)      PROMPT_FILE_NAME="$AMP_PROMPT_FILE_NAME" ;;
+  agy)      PROMPT_FILE_NAME="$AGY_PROMPT_FILE_NAME" ;;
+  cursor)   PROMPT_FILE_NAME="$CURSOR_PROMPT_FILE_NAME" ;;
+  opencode) PROMPT_FILE_NAME="$OPENCODE_PROMPT_FILE_NAME" ;;
 esac
 
 # Check for local override first, then fall back to script directory
@@ -613,9 +816,30 @@ for i in $(seq 1 $MAX_ITERATIONS); do
     CLAUDE_ARGS=(--effort "$EFFORT" --dangerously-skip-permissions --print)
     [[ -n "$MODEL" ]] && CLAUDE_ARGS+=(--model "$MODEL")
     OUTPUT=$(claude "${CLAUDE_ARGS[@]}" < "$PROMPT_FILE" 2>&1 | tee /dev/stderr) || true
+  elif [[ "$TOOL" == "agy" ]]; then
+    # Antigravity: same shape as claude — --print reads the prompt from stdin.
+    AGY_ARGS=(--print --dangerously-skip-permissions)
+    [[ -n "$MODEL" ]] && AGY_ARGS+=(--model "$MODEL")
+    [[ "$EFFORT_EXPLICIT" -eq 1 ]] && AGY_ARGS+=(--effort "$EFFORT")
+    OUTPUT=$(agy "${AGY_ARGS[@]}" < "$PROMPT_FILE" 2>&1 | tee /dev/stderr) || true
+  elif [[ "$TOOL" == "cursor" ]]; then
+    # cursor-agent takes the prompt as a positional argument, and carries effort
+    # inside the model string rather than as its own flag.
+    CURSOR_ARGS=(--print --force)
+    CURSOR_MODEL="$(cursor_model_argument "$MODEL" "$EFFORT_EXPLICIT" "$EFFORT")"
+    [[ -n "$CURSOR_MODEL" ]] && CURSOR_ARGS+=(--model "$CURSOR_MODEL")
+    OUTPUT=$(cursor-agent "${CURSOR_ARGS[@]}" "$(<"$PROMPT_FILE")" 2>&1 | tee /dev/stderr) || true
+  elif [[ "$TOOL" == "opencode" ]]; then
+    # opencode run takes the prompt positionally; effort is --variant, and model
+    # ids are provider-qualified (provider/model).
+    OPENCODE_ARGS=(run --auto)
+    [[ -n "$MODEL" ]] && OPENCODE_ARGS+=(--model "$MODEL")
+    [[ "$EFFORT_EXPLICIT" -eq 1 ]] && OPENCODE_ARGS+=(--variant "$EFFORT")
+    OUTPUT=$("$OPENCODE_BIN" "${OPENCODE_ARGS[@]}" "$(<"$PROMPT_FILE")" 2>&1 | tee /dev/stderr) || true
   elif [[ "$TOOL" == "gemini" ]]; then
     # Gemini CLI has no effort knob; --approval-mode yolo is the current spelling
-    # of the old -y/--yolo flag.
+    # of the old -y/--yolo flag. Superseded by agy (Antigravity) — kept for
+    # anyone still on gemini-cli.
     GEMINI_ARGS=(--approval-mode yolo)
     [[ -n "$MODEL" ]] && GEMINI_ARGS+=(--model "$MODEL")
     OUTPUT=$(gemini "${GEMINI_ARGS[@]}" --prompt "$(<"$PROMPT_FILE")" 2>&1 | tee /dev/stderr) || true

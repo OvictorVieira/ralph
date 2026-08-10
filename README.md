@@ -2,7 +2,7 @@
 
 ![Ralph](ralph.webp)
 
-Ralph is an autonomous AI agent loop that runs AI coding tools ([Amp](https://ampcode.com), [Claude Code](https://docs.anthropic.com/en/docs/claude-code), Gemini CLI, or Codex CLI) repeatedly until all PRD items are complete. Each iteration is a fresh instance with clean context. Memory persists via git history, `progress.txt`, and `prd.json`.
+Ralph is an autonomous AI agent loop that runs AI coding tools ([Claude Code](https://docs.anthropic.com/en/docs/claude-code), Codex CLI, Antigravity, Cursor Agent, OpenCode, [Amp](https://ampcode.com), or Gemini CLI) repeatedly until all PRD items are complete. Each iteration is a fresh instance with clean context. Memory persists via git history, `progress.txt`, and `prd.json`.
 
 Based on [Geoffrey Huntley's Ralph pattern](https://ghuntley.com/ralph/).
 
@@ -11,10 +11,13 @@ Based on [Geoffrey Huntley's Ralph pattern](https://ghuntley.com/ralph/).
 ## Prerequisites
 
 - One of the following AI coding tools installed and authenticated:
-  - [Amp CLI](https://ampcode.com) (default)
   - [Claude Code](https://docs.anthropic.com/en/docs/claude-code) (`npm install -g @anthropic-ai/claude-code`)
-  - Gemini CLI
   - Codex CLI
+  - Antigravity (`agy`)
+  - Cursor Agent (`cursor-agent`)
+  - [OpenCode](https://github.com/sst/opencode)
+  - [Amp CLI](https://ampcode.com) (the historical default)
+  - Gemini CLI (superseded by Antigravity)
 - `jq` installed (`brew install jq` on macOS)
 - A git repository for your project
 
@@ -37,6 +40,9 @@ This installs:
 - `~/.local/share/ralph/CLAUDE.md`
 - `~/.local/share/ralph/GEMINI.md`
 - `~/.local/share/ralph/CODEX.md`
+- `~/.local/share/ralph/AGY.md`
+- `~/.local/share/ralph/CURSOR.md`
+- `~/.local/share/ralph/OPENCODE.md`
 
 If `~/.local/bin` is not already in your `PATH`, add this to `~/.zshenv` or your shell profile:
 
@@ -48,9 +54,10 @@ Then open a new terminal and run Ralph from any project root:
 
 ```bash
 ralph --tool claude
-ralph --tool amp
-ralph --tool gemini
 ralph --tool codex
+ralph --tool agy
+ralph --tool cursor
+ralph --tool opencode
 ```
 
 Ralph automatically:
@@ -71,6 +78,9 @@ cp /path/to/ralph/AMP.md scripts/ralph/AMP.md
 cp /path/to/ralph/CLAUDE.md scripts/ralph/CLAUDE.md
 cp /path/to/ralph/GEMINI.md scripts/ralph/GEMINI.md
 cp /path/to/ralph/CODEX.md scripts/ralph/CODEX.md
+cp /path/to/ralph/AGY.md scripts/ralph/AGY.md
+cp /path/to/ralph/CURSOR.md scripts/ralph/CURSOR.md
+cp /path/to/ralph/OPENCODE.md scripts/ralph/OPENCODE.md
 
 chmod +x scripts/ralph/ralph.sh
 ```
@@ -156,11 +166,13 @@ ralph [max_iterations]
 # Using Claude Code with a global install
 ralph --tool claude [max_iterations]
 
-# Using Gemini with a global install
-ralph --tool gemini [max_iterations]
-
 # Using Codex with a global install
 ralph --tool codex [max_iterations]
+
+# Using Antigravity, Cursor or OpenCode with a global install
+ralph --tool agy [max_iterations]
+ralph --tool cursor [max_iterations]
+ralph --tool opencode [max_iterations]
 
 # Using a project-local copy
 ./scripts/ralph/ralph.sh [max_iterations]
@@ -168,14 +180,25 @@ ralph --tool codex [max_iterations]
 # Using a project-local copy with Claude Code
 ./scripts/ralph/ralph.sh --tool claude [max_iterations]
 
-# Using a project-local copy with Gemini
-./scripts/ralph/ralph.sh --tool gemini [max_iterations]
-
 # Using a project-local copy with Codex
 ./scripts/ralph/ralph.sh --tool codex [max_iterations]
 ```
 
-Default is 10 iterations. Use `--tool amp`, `--tool claude`, `--tool gemini`, or `--tool codex` to select your AI coding tool.
+Default is 10 iterations. See the tool table below for what each one supports.
+
+### Tools
+
+| Tool | Binary | Model | Effort |
+|------|--------|-------|--------|
+| `claude` | `claude` | `--model` | `--effort` — low, medium, high, xhigh, max |
+| `codex` | `codex` | `--model` | `model_reasoning_effort` key — minimal, low, medium, high, xhigh |
+| `agy` | `agy` (Antigravity) | `--model` | `--effort` — low, medium, high |
+| `cursor` | `cursor-agent` | `--model` | `model[effort=…]` — needs `--model` |
+| `opencode` | `opencode` | `-m provider/model` | `--variant` |
+| `amp` | `amp` | `--model` | none |
+| `gemini` | `gemini` | `--model` | none — superseded by `agy` |
+
+`opencode` is found at `~/.opencode/bin/opencode` when it is not on PATH.
 
 ### Models
 
@@ -183,26 +206,45 @@ Ralph pins no model. Each tool runs whatever it is already configured with, so a
 new model is available the day the vendor ships it, without a Ralph release.
 
 ```bash
-ralph --list-models              # per tool: configured default, what its CLI advertises, effort support
-ralph --tool claude --model sonnet
-ralph --tool codex --model gpt-5.6-sol
+ralph --list-models                                        # everything below, per tool
+ralph --claude --model sonnet
+ralph --codex  --model gpt-5.6-sol
+ralph --opencode --model opencode/deepseek-v4-flash-free
 ```
 
-`--list-models` asks the installed CLIs rather than printing a table baked into
-Ralph — including saying so when a CLI exposes no list. `--model` accepts any
-value the tool accepts and is passed straight through.
+`--list-models` asks the installed CLIs — `opencode models`, `agy models`,
+`cursor-agent --list-models`, the aliases in `claude --help`, the `model` key in
+`~/.codex/config.toml` — rather than printing a table baked into Ralph that would
+go stale. Where a CLI exposes no list, or needs a sign-in it does not have, it
+says so instead of guessing.
+
+`--model` is passed to the tool as given. When the tool can enumerate its models
+and yours is not among them, Ralph warns and runs it anyway: a full model id is
+frequently valid without being advertised.
 
 ### Effort
 
-`--effort low|medium|high|max` is supported by **claude** (native `--effort`) and
-**codex** (mapped to the `model_reasoning_effort` config key). Gemini and Amp have
-no such knob; passing `--effort` to them is now an error instead of being
-silently ignored.
+One vocabulary — `low`, `medium`, `high`, `xhigh`, `max` — translated per tool,
+because no two of these CLIs spell it the same way or even use the same
+mechanism. A level the chosen tool does not accept is an error, not a silent
+downgrade:
 
 ```bash
-ralph --tool claude --effort high 8
-ralph --tool codex --effort high 8
+ralph --claude --effort xhigh 8
+ralph --codex  --effort high 8
+ralph --agy    --effort high 8
+ralph --cursor --model sonnet-4-thinking --effort high 8   # effort rides in the model string
+ralph --opencode --model opencode/big-pickle --effort high 8
+
+ralph --agy --effort xhigh
+# Error: 'agy' does not accept effort 'xhigh'.
+#        Accepts: low medium high  (via --effort flag)
 ```
+
+Every range above came from the CLI itself — `claude --effort bogus` names its
+valid values, `agy --help` documents its own, `cursor-agent --help` shows the
+bracket-override form. Amp and Gemini have no such knob at all, so `--effort`
+there is rejected rather than dropped.
 
 ### Branches
 
@@ -229,9 +271,12 @@ Ralph will:
 
 | File | Purpose |
 |------|---------|
-| `ralph.sh` | The bash loop that spawns fresh AI instances (supports `--tool amp`, `--tool claude`, `--tool gemini`, or `--tool codex`) |
+| `ralph.sh` | The bash loop that spawns fresh AI instances (see the tool table above) |
 | `bin/ralph` | Global launcher installed to `~/.local/bin/ralph` |
 | `AMP.md` | Prompt template for Amp |
+| `AGY.md` | Prompt template for Antigravity |
+| `CURSOR.md` | Prompt template for Cursor Agent |
+| `OPENCODE.md` | Prompt template for OpenCode |
 | `CLAUDE.md` | Prompt template for Claude Code |
 | `GEMINI.md` | Prompt template for Gemini CLI |
 | `CODEX.md` | Prompt template for Codex CLI |
@@ -264,7 +309,7 @@ npm run dev
 
 ### Each Iteration = Fresh Context
 
-Each iteration spawns a **new AI instance** (Amp, Claude Code, Gemini CLI, or Codex CLI) with clean context. The only memory between iterations is:
+Each iteration spawns a **new AI instance** (whichever tool `--tool` selected) with clean context. The only memory between iterations is:
 - Git history (commits from previous iterations)
 - `progress.txt` (learnings and context)
 - `prd.json` (which stories are done)
