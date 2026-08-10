@@ -177,8 +177,46 @@ ralph --tool codex [max_iterations]
 
 Default is 10 iterations. Use `--tool amp`, `--tool claude`, `--tool gemini`, or `--tool codex` to select your AI coding tool.
 
+### Models
+
+Ralph pins no model. Each tool runs whatever it is already configured with, so a
+new model is available the day the vendor ships it, without a Ralph release.
+
+```bash
+ralph --list-models              # per tool: configured default, what its CLI advertises, effort support
+ralph --tool claude --model sonnet
+ralph --tool codex --model gpt-5.6-sol
+```
+
+`--list-models` asks the installed CLIs rather than printing a table baked into
+Ralph — including saying so when a CLI exposes no list. `--model` accepts any
+value the tool accepts and is passed straight through.
+
+### Effort
+
+`--effort low|medium|high|max` is supported by **claude** (native `--effort`) and
+**codex** (mapped to the `model_reasoning_effort` config key). Gemini and Amp have
+no such knob; passing `--effort` to them is now an error instead of being
+silently ignored.
+
+```bash
+ralph --tool claude --effort high 8
+ralph --tool codex --effort high 8
+```
+
+### Branches
+
+Ralph does not name branches — the project's convention does.
+
+- Already on a working branch (a worktree, a release branch, anything but the
+  default): **that** is the branch. Ralph records it and the agent stays on it.
+- On the default branch: the agent reads `AGENTS.md` / `CONTRIBUTING.md` / recent
+  branch names, falls back to git flow when the project documents nothing, and
+  creates a short branch — a few kebab-case words, no story ids, never a `ralph/`
+  prefix.
+
 Ralph will:
-1. Create a feature branch (from PRD `branchName`)
+1. Adopt the checked-out working branch, or let the agent create one per the project's convention
 2. Pick the highest priority story where `passes: false`
 3. Implement that single story
 4. Run quality checks (typecheck, tests)
