@@ -40,6 +40,15 @@ Arguments:
 
 Environment:
   RALPH_PROJECT_ROOT Override the project root used for prd.json/progress.txt
+  RALPH_PROMPT_FILE  Path to the driver prompt. Overrides both the project-local
+                     prompt and the installed one.
+
+Prompts:
+  The driver prompt is named after the tool (CLAUDE.md, GEMINI.md, ...), which
+  is also what those tools call a project's own rules file. A project-local file
+  is used only when it carries Ralph's stop signal — a customized copy of a
+  shipped prompt does, a rules file does not. Otherwise the installed prompt is
+  used and the project's rules keep working as rules.
 
 Branches:
   Ralph does not name branches. On a working branch, that branch is the target.
@@ -715,11 +724,38 @@ case "$TOOL" in
   opencode) PROMPT_FILE_NAME="$OPENCODE_PROMPT_FILE_NAME" ;;
 esac
 
-# Check for local override first, then fall back to script directory
-if [[ -f "$PROJECT_ROOT/$PROMPT_FILE_NAME" ]]; then
+# Resolve the driver prompt.
+#
+# Every prompt file is named after its tool — CLAUDE.md, GEMINI.md, CURSOR.md —
+# and that is the same name those tools already use for a project's own rules
+# file. A repo that ships a CLAUDE.md is publishing rules for the agent, not a
+# Ralph driver, and the agent loads that file by itself. Handing it to the loop
+# as the driver feeds the iteration a file with no PRD instructions and no stop
+# condition: the agent gets no task, every iteration burns, and the run ends at
+# max iterations having done nothing. The rules file must not block the engine.
+#
+# So a project-local file is only treated as a driver when it carries the stop
+# signal every Ralph prompt ends with. A customized copy of a shipped prompt
+# keeps it and still overrides; a rules file does not have it and is ignored.
+# RALPH_PROMPT_FILE wins over both, for a driver kept anywhere.
+RALPH_PROMPT_SENTINEL="<promise>COMPLETE</promise>"
+
+if [[ -n "${RALPH_PROMPT_FILE:-}" ]]; then
+  PROMPT_FILE="$RALPH_PROMPT_FILE"
+  if [[ ! -f "$PROMPT_FILE" ]]; then
+    echo "Error: RALPH_PROMPT_FILE points at a file that does not exist: $PROMPT_FILE"
+    exit 1
+  fi
+elif [[ -f "$PROJECT_ROOT/$PROMPT_FILE_NAME" ]] \
+  && grep -qF "$RALPH_PROMPT_SENTINEL" "$PROJECT_ROOT/$PROMPT_FILE_NAME"; then
   PROMPT_FILE="$PROJECT_ROOT/$PROMPT_FILE_NAME"
 else
   PROMPT_FILE="$SCRIPT_DIR/$PROMPT_FILE_NAME"
+  if [[ -f "$PROJECT_ROOT/$PROMPT_FILE_NAME" ]]; then
+    echo "Note: $PROJECT_ROOT/$PROMPT_FILE_NAME carries no Ralph stop signal, so it is"
+    echo "      the project's own rules for $TOOL, not a driver prompt. Using $PROMPT_FILE."
+    echo "      Set RALPH_PROMPT_FILE to point at a driver kept elsewhere."
+  fi
 fi
 
 if [[ ! -f "$PROMPT_FILE" ]]; then
@@ -774,6 +810,7 @@ cd "$PROJECT_ROOT"
 echo "Starting Ralph - Tool: $TOOL - Max iterations: $MAX_ITERATIONS"
 echo "Project root: $PROJECT_ROOT"
 echo "PRD file: $PRD_FILE"
+echo "Prompt file: $PROMPT_FILE"
 if [[ -n "$MODEL" ]]; then
   echo "Model: $MODEL"
 else

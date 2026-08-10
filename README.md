@@ -377,6 +377,28 @@ After copying `AMP.md` (for Amp) or `CLAUDE.md` (for Claude Code) to your projec
 
 If you use the global install and want custom prompts per machine, edit the files in `~/.local/share/ralph/`.
 
+### How the driver prompt is resolved
+
+Each prompt is named after its tool — `CLAUDE.md`, `GEMINI.md`, `CURSOR.md` —
+and that is the same name those tools use for a project's own rules file. Many
+repos already ship one. It is rules for the agent, not a Ralph driver, and the
+agent loads it on its own; if Ralph fed it to the loop as the driver, the
+iteration would get no PRD instructions and no stop condition, and the whole run
+would burn its iterations doing nothing.
+
+So Ralph resolves the prompt in this order:
+
+1. `RALPH_PROMPT_FILE`, when set. Missing file is an error, never a silent
+   fallback.
+2. `<project root>/<TOOL>.md`, but only when it carries Ralph's stop signal
+   (`<promise>COMPLETE</promise>`). A customized copy of a shipped prompt keeps
+   it and still overrides.
+3. The installed prompt in `~/.local/share/ralph/`.
+
+When a project file is skipped for lacking the signal, Ralph says so at startup
+and prints which prompt it used, so the project's rules keep working as rules
+and the loop still runs.
+
 ## Archiving
 
 Ralph automatically archives previous runs when you start a new feature (different `branchName`). Archives are saved to `.ralph/archive/YYYY-MM-DD-feature-name/` inside the target project.
