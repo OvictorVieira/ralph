@@ -6,7 +6,8 @@ set -euo pipefail
 
 print_usage() {
   cat <<'EOF'
-Usage: ralph [--tool amp|claude|gemini|codex] [--effort low|medium|high|max] [max_iterations]
+Usage: ralph [--tool amp|claude|gemini|codex] [--model MODEL]
+             [--effort low|medium|high|max] [max_iterations]
 
 Options:
   --tool TOOL        Agent to run. Supported: amp, claude, gemini, codex
@@ -15,7 +16,14 @@ Options:
   --amp              Shortcut for --tool amp
   --gemini           Shortcut for --tool gemini
   --codex            Shortcut for --tool codex
-  --effort LEVEL     Effort level for claude (low, medium, high, max). Default: medium
+  --model MODEL      Model to run. Defaults to the tool's own configured model.
+  --model=MODEL      Same as above
+  --list-models      Show, per tool, the model it is configured with and any it
+                     advertises. Queries the installed CLIs rather than a table
+                     baked into Ralph.
+  --effort LEVEL     Reasoning effort (low, medium, high, max). Default: medium.
+                     Supported by claude and codex; rejected for the others
+                     instead of being silently dropped.
   --effort=LEVEL     Same as above
   -h, --help         Show this help message
 
@@ -24,6 +32,11 @@ Arguments:
 
 Environment:
   RALPH_PROJECT_ROOT Override the project root used for prd.json/progress.txt
+
+Branches:
+  Ralph does not name branches. On a working branch, that branch is the target.
+  On the default branch, the agent reads the project's own convention and
+  creates a short git-flow branch itself.
 EOF
 }
 
@@ -86,144 +99,79 @@ resolve_prd_file() {
   return 1
 }
 
-slugify() {
-  printf '%s' "$1" \
-    | tr '[:upper:]' '[:lower:]' \
-    | sed -E 's/[^a-z0-9]+/-/g; s/^-+//; s/-+$//; s/-{2,}/-/g'
-}
+# Ralph does not invent branch names.
+#
+# It used to: a chain of infer_branch_type / infer_ticket_key / infer_branch_slug
+# synthesised a name from the PRD and overwrote whatever the PRD declared. That
+# produced names no project asked for — `hotfix/US-004/15-regression-harness-defects`
+# from a PRD that plainly said `fix/15-regression-harness-defects`, because the
+# type table mapped `fix/*` to `hotfix` and a story id in the description was
+# mistaken for a ticket key. Worse, the agent prompt then read the rewritten
+# value and created that branch from main, which breaks any repo that pins a
+# branch per worktree.
+#
+# The project owns its branch convention. Two rules replace the guessing:
+#
+#   1. Already on a working branch (anything but the default) — that IS the
+#      target. Record it, never rename it.
+#   2. On the default branch — Ralph declines to name anything. The agent reads
+#      the project's own convention (AGENTS.md, CLAUDE.md, CONTRIBUTING.md,
+#      recent branch names) and creates a short git-flow branch itself.
+detect_default_branch() {
+  local project_root="$1"
+  local head_ref
 
-infer_ticket_key() {
-  local prd_file="$1"
-  local candidate
-
-  candidate="$(
-    jq -r '
-      [
-        .ticketId,
-        .taskId,
-        .issueKey,
-        .jiraId,
-        .description,
-        (.userStories[]?.title),
-        (.userStories[]?.description)
-      ]
-      | map(select(type == "string" and length > 0))
-      | .[]
-    ' "$prd_file" 2>/dev/null \
-    | grep -Eo '[A-Z]+-[0-9]+' \
-    | head -n 1
+  head_ref="$(
+    git -C "$project_root" symbolic-ref --quiet --short refs/remotes/origin/HEAD 2>/dev/null \
+      || true
   )"
 
-  if [[ -n "$candidate" ]]; then
-    echo "$candidate"
-  fi
-}
-
-infer_branch_type() {
-  local prd_file="$1"
-  local raw_type
-
-  raw_type="$(
-    jq -r '
-      .branchType // .type // .workType // .taskType // .kind // .category // .branchName // .description // ""
-    ' "$prd_file" 2>/dev/null \
-      | tr '[:upper:]' '[:lower:]'
-  )"
-
-  case "$raw_type" in
-    hotfix*|fix/*|fix\ *|bugfix*|bug/*)
-      echo "hotfix"
-      ;;
-    chore*)
-      echo "chore"
-      ;;
-    docs*|doc*)
-      echo "docs"
-      ;;
-    refactor*)
-      echo "refactor"
-      ;;
-    test*)
-      echo "test"
-      ;;
-    feat/*|feature/*|feature*|feat*)
-      echo "feat"
-      ;;
-    *)
-      echo "feat"
-      ;;
-  esac
-}
-
-infer_branch_slug() {
-  local prd_file="$1"
-  local raw_slug
-  local prd_dir
-  local task_slug_file
-
-  prd_dir="$(dirname "$prd_file")"
-  task_slug_file="$(
-    find "$prd_dir" -maxdepth 1 -type f -name 'prd-*.md' -print 2>/dev/null \
-      | head -n 1
-  )"
-
-  if [[ -n "$task_slug_file" ]]; then
-    raw_slug="$(basename "$task_slug_file" .md | sed 's/^prd-//')"
-  else
-    raw_slug="$(
-      jq -r '
-        (
-          .branchName
-          | select(type == "string" and length > 0)
-          | split("/")
-          | if length >= 3 then .[2:] | join("/")
-            elif length == 2 then .[1]
-            else empty
-            end
-        ) //
-        .branchSlug //
-        .slug //
-        .storySlug //
-        .taskSlug //
-        .description //
-        (.userStories[]? | select(.passes == false) | .title) //
-        .project //
-        "task"
-      ' "$prd_file" 2>/dev/null \
-        | head -n 1
-    )"
-  fi
-
-  slugify "$raw_slug"
-}
-
-normalize_branch_name() {
-  local prd_file="$1"
-  local current_branch branch_type ticket_key branch_slug story_id_branch_pattern desired_branch
-
-  current_branch="$(jq -r '.branchName // empty' "$prd_file" 2>/dev/null || true)"
-  story_id_branch_pattern='^(feat|feature|hotfix|fix|bugfix|chore|docs|refactor|test)/US-[0-9]+(/.*)?$'
-
-  branch_type="$(infer_branch_type "$prd_file")"
-  ticket_key="$(infer_ticket_key "$prd_file")"
-  branch_slug="$(infer_branch_slug "$prd_file")"
-
-  if [[ -n "$ticket_key" && -n "$branch_slug" ]]; then
-    desired_branch="$branch_type/$ticket_key/$branch_slug"
-  elif [[ -n "$ticket_key" ]]; then
-    desired_branch="$branch_type/$ticket_key"
-  elif [[ -n "$branch_slug" ]]; then
-    desired_branch="$branch_type/$branch_slug"
-  else
-    desired_branch="$branch_type/task"
-  fi
-
-  if [[ -n "$current_branch" && ! "$current_branch" =~ ^ralph(/|$) && ! "$current_branch" =~ $story_id_branch_pattern && "$current_branch" == "$desired_branch" ]]; then
-    echo "$current_branch"
+  if [[ -n "$head_ref" ]]; then
+    echo "${head_ref#origin/}"
     return 0
   fi
 
-  echo "$desired_branch"
+  if git -C "$project_root" show-ref --verify --quiet refs/remotes/origin/main \
+    || git -C "$project_root" show-ref --verify --quiet refs/heads/main; then
+    echo "main"
+    return 0
+  fi
+
+  if git -C "$project_root" show-ref --verify --quiet refs/remotes/origin/master \
+    || git -C "$project_root" show-ref --verify --quiet refs/heads/master; then
+    echo "master"
+    return 0
+  fi
+
+  echo "main"
+}
+
+# Prints the branch Ralph should record in the PRD, or nothing when the agent
+# must choose one. Never invents a name.
+resolve_target_branch() {
+  local project_root="$1"
+  local prd_file="$2"
+  local checked_out default_branch declared
+
+  command -v git >/dev/null 2>&1 || return 0
+  git -C "$project_root" rev-parse --git-dir >/dev/null 2>&1 || return 0
+
+  checked_out="$(git -C "$project_root" rev-parse --abbrev-ref HEAD 2>/dev/null || true)"
+  default_branch="$(detect_default_branch "$project_root")"
+
+  # Detached HEAD reports literal "HEAD" — there is no branch to adopt.
+  if [[ -n "$checked_out" && "$checked_out" != "HEAD" && "$checked_out" != "$default_branch" ]]; then
+    echo "$checked_out"
+    return 0
+  fi
+
+  # On the default branch the PRD may still name a branch the agent should
+  # create — but only if it follows the project's convention rather than
+  # Ralph's own namespace. `ralph/...` is never a project convention.
+  declared="$(jq -r '.branchName // empty' "$prd_file" 2>/dev/null || true)"
+  if [[ -n "$declared" && ! "$declared" =~ ^ralph(/|$) ]]; then
+    echo "$declared"
+  fi
 }
 
 persist_branch_name() {
@@ -275,10 +223,108 @@ resolve_git_identity_from_history() {
   fi
 }
 
+SUPPORTED_TOOLS="amp claude gemini codex"
+
+# Which tools can actually be told how hard to think, and how.
+#
+# Passing --effort to a tool that has no such knob used to be silently accepted
+# and silently dropped: the flag only ever reached claude. Now the unsupported
+# combination says so.
+tool_supports_effort() {
+  case "$1" in
+    claude|codex) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
+# Model discovery is per-tool because no two of these CLIs expose it the same
+# way, and none of them offers a machine-readable list. Rather than hardcode a
+# table that rots the moment a vendor ships a model, ask each CLI what it knows
+# and say plainly where the answer came from — including when the answer is
+# "it does not tell us".
+tool_configured_model() {
+  case "$1" in
+    claude)
+      [[ -f "$HOME/.claude/settings.json" ]] || return 0
+      jq -r '.model // empty' "$HOME/.claude/settings.json" 2>/dev/null || true
+      ;;
+    codex)
+      [[ -f "$HOME/.codex/config.toml" ]] || return 0
+      sed -n 's/^[[:space:]]*model[[:space:]]*=[[:space:]]*"\([^"]*\)".*/\1/p' \
+        "$HOME/.codex/config.toml" 2>/dev/null | head -n 1
+      ;;
+    gemini)
+      [[ -f "$HOME/.gemini/settings.json" ]] || return 0
+      jq -r '.model // .model.name // empty' "$HOME/.gemini/settings.json" 2>/dev/null || true
+      ;;
+  esac
+}
+
+# Claude Code documents its aliases and one full model id inside `--model`'s
+# own help text. That is the only self-describing source any of these CLIs has,
+# so parse it rather than guess.
+tool_advertised_models() {
+  case "$1" in
+    claude)
+      command -v claude >/dev/null 2>&1 || return 0
+      claude --help 2>/dev/null \
+        | awk '/--model </{capture=1} capture{print} capture && /\)\./{exit}' \
+        | grep -Eo "'[a-zA-Z0-9._-]+'" \
+        | tr -d "'" \
+        | sort -u \
+        | tr '\n' ' '
+      ;;
+  esac
+}
+
+print_models() {
+  local tool configured advertised installed
+
+  echo "Models"
+  echo ""
+  for tool in $SUPPORTED_TOOLS; do
+    if command -v "$tool" >/dev/null 2>&1; then
+      installed="installed"
+    else
+      installed="not installed"
+    fi
+
+    printf '  %-8s (%s)\n' "$tool" "$installed"
+
+    configured="$(tool_configured_model "$tool" || true)"
+    if [[ -n "$configured" ]]; then
+      printf '    configured default : %s\n' "$configured"
+    fi
+
+    advertised="$(tool_advertised_models "$tool" || true)"
+    if [[ -n "${advertised// /}" ]]; then
+      printf '    advertised by CLI  : %s\n' "${advertised% }"
+    fi
+
+    if [[ -z "$configured" && -z "${advertised// /}" ]]; then
+      printf '    %s\n' "no model list available from this CLI — any value is passed through"
+    fi
+
+    if tool_supports_effort "$tool"; then
+      printf '    effort             : supported\n'
+    else
+      printf '    effort             : not supported by this CLI\n'
+    fi
+    echo ""
+  done
+  cat <<'EOF'
+--model accepts any value the tool accepts; Ralph does not validate it.
+With no --model, each tool uses its own configured default rather than one
+Ralph picked for you.
+EOF
+}
+
 # Parse arguments
 TOOL="amp"  # Default to amp for backwards compatibility
 MAX_ITERATIONS=10
-CLAUDE_EFFORT="medium"
+EFFORT="medium"
+EFFORT_EXPLICIT=0
+MODEL=""
 
 while [[ $# -gt 0 ]]; do
   case $1 in
@@ -321,12 +367,30 @@ while [[ $# -gt 0 ]]; do
         print_usage
         exit 1
       fi
-      CLAUDE_EFFORT="$2"
+      EFFORT="$2"
+      EFFORT_EXPLICIT=1
       shift 2
       ;;
     --effort=*)
-      CLAUDE_EFFORT="${1#*=}"
+      EFFORT="${1#*=}"
+      EFFORT_EXPLICIT=1
       shift
+      ;;
+    --model)
+      if [[ $# -lt 2 || -z "${2:-}" ]]; then
+        echo "Error: --model requires a value. See 'ralph --list-models'."
+        exit 1
+      fi
+      MODEL="$2"
+      shift 2
+      ;;
+    --model=*)
+      MODEL="${1#*=}"
+      shift
+      ;;
+    --list-models)
+      print_models
+      exit 0
       ;;
     *)
       if [[ "$1" =~ ^[0-9]+$ ]]; then
@@ -344,6 +408,13 @@ done
 # Validate tool choice
 if [[ "$TOOL" != "amp" && "$TOOL" != "claude" && "$TOOL" != "gemini" && "$TOOL" != "codex" ]]; then
   echo "Error: Invalid tool '$TOOL'. Must be 'amp', 'claude', 'gemini', or 'codex'."
+  exit 1
+fi
+
+if [[ "$EFFORT_EXPLICIT" -eq 1 ]] && ! tool_supports_effort "$TOOL"; then
+  echo "Error: --effort is not supported by '$TOOL'."
+  echo "       Supported: claude (--effort), codex (model_reasoning_effort)."
+  echo "       Run 'ralph --list-models' to see what each installed tool exposes."
   exit 1
 fi
 
@@ -386,9 +457,23 @@ if [[ -z "$PRD_FILE" || ! -f "$PRD_FILE" ]]; then
   exit 1
 fi
 
-NORMALIZED_BRANCH_NAME="$(normalize_branch_name "$PRD_FILE")"
-if [[ -n "$NORMALIZED_BRANCH_NAME" ]]; then
-  persist_branch_name "$PRD_FILE" "$NORMALIZED_BRANCH_NAME"
+DECLARED_BRANCH_NAME="$(jq -r '.branchName // empty' "$PRD_FILE" 2>/dev/null || true)"
+TARGET_BRANCH_NAME="$(resolve_target_branch "$PROJECT_ROOT" "$PRD_FILE")"
+
+if [[ "$DECLARED_BRANCH_NAME" =~ ^ralph(/|$) ]]; then
+  echo "Warning: PRD branchName '$DECLARED_BRANCH_NAME' uses Ralph's own namespace."
+  echo "         Branch names belong to the project, not to Ralph. Ignoring it —"
+  echo "         the agent will follow the project's convention instead."
+fi
+
+if [[ -n "$TARGET_BRANCH_NAME" ]]; then
+  if [[ "$TARGET_BRANCH_NAME" != "$DECLARED_BRANCH_NAME" ]]; then
+    persist_branch_name "$PRD_FILE" "$TARGET_BRANCH_NAME"
+  fi
+elif [[ -n "$DECLARED_BRANCH_NAME" ]]; then
+  # Only reachable when the declared name was a `ralph/...` one. Clearing it
+  # stops the agent from creating it.
+  persist_branch_name "$PRD_FILE" ""
 fi
 
 if command -v git >/dev/null 2>&1; then
@@ -486,7 +571,24 @@ cd "$PROJECT_ROOT"
 echo "Starting Ralph - Tool: $TOOL - Max iterations: $MAX_ITERATIONS"
 echo "Project root: $PROJECT_ROOT"
 echo "PRD file: $PRD_FILE"
-echo "Target branch: $(jq -r '.branchName // empty' "$PRD_FILE" 2>/dev/null || true)"
+if [[ -n "$MODEL" ]]; then
+  echo "Model: $MODEL"
+else
+  echo "Model: ${TOOL} default ($(tool_configured_model "$TOOL" 2>/dev/null || true))"
+fi
+if [[ "$TOOL" == "claude" ]]; then
+  echo "Effort: $EFFORT"
+elif tool_supports_effort "$TOOL" && [[ "$EFFORT_EXPLICIT" -eq 1 ]]; then
+  echo "Effort: $EFFORT"
+elif tool_supports_effort "$TOOL"; then
+  echo "Effort: ${TOOL} default (no --effort given)"
+fi
+RUNNING_BRANCH="$(jq -r '.branchName // empty' "$PRD_FILE" 2>/dev/null || true)"
+if [[ -n "$RUNNING_BRANCH" ]]; then
+  echo "Target branch: $RUNNING_BRANCH"
+else
+  echo "Target branch: (agent will create one following the project's convention)"
+fi
 if [[ -n "${GIT_AUTHOR_EMAIL:-}" ]]; then
   echo "Commit email: $GIT_AUTHOR_EMAIL"
 fi
@@ -497,16 +599,34 @@ for i in $(seq 1 $MAX_ITERATIONS); do
   echo "  Ralph Iteration $i of $MAX_ITERATIONS ($TOOL)"
   echo "==============================================================="
 
-  # Run the selected tool with the ralph prompt
+  # Run the selected tool with the ralph prompt.
+  #
+  # No model is hardcoded. Ralph used to pin claude to `--model opus`, which
+  # silently overrode the user's own configured default and went stale every
+  # time a new model shipped. With no --model, each CLI uses its own default.
   if [[ "$TOOL" == "amp" ]]; then
-    OUTPUT=$(amp --dangerously-allow-all < "$PROMPT_FILE" 2>&1 | tee /dev/stderr) || true
+    AMP_ARGS=(--dangerously-allow-all)
+    [[ -n "$MODEL" ]] && AMP_ARGS+=(--model "$MODEL")
+    OUTPUT=$(amp "${AMP_ARGS[@]}" < "$PROMPT_FILE" 2>&1 | tee /dev/stderr) || true
   elif [[ "$TOOL" == "claude" ]]; then
-    # Claude Code: use --dangerously-skip-permissions for autonomous operation, --print for output
-    OUTPUT=$(claude --model opus --effort "$CLAUDE_EFFORT" --dangerously-skip-permissions --print < "$PROMPT_FILE" 2>&1 | tee /dev/stderr) || true
+    # Claude Code: --dangerously-skip-permissions for autonomous operation, --print for output
+    CLAUDE_ARGS=(--effort "$EFFORT" --dangerously-skip-permissions --print)
+    [[ -n "$MODEL" ]] && CLAUDE_ARGS+=(--model "$MODEL")
+    OUTPUT=$(claude "${CLAUDE_ARGS[@]}" < "$PROMPT_FILE" 2>&1 | tee /dev/stderr) || true
   elif [[ "$TOOL" == "gemini" ]]; then
-    OUTPUT=$(gemini --yolo --prompt "$(<"$PROMPT_FILE")" 2>&1 | tee /dev/stderr) || true
+    # Gemini CLI has no effort knob; --approval-mode yolo is the current spelling
+    # of the old -y/--yolo flag.
+    GEMINI_ARGS=(--approval-mode yolo)
+    [[ -n "$MODEL" ]] && GEMINI_ARGS+=(--model "$MODEL")
+    OUTPUT=$(gemini "${GEMINI_ARGS[@]}" --prompt "$(<"$PROMPT_FILE")" 2>&1 | tee /dev/stderr) || true
   else
-    OUTPUT=$(codex exec --dangerously-bypass-approvals-and-sandbox -C "$PROJECT_ROOT" - < "$PROMPT_FILE" 2>&1 | tee /dev/stderr) || true
+    # Codex has no --effort flag: reasoning effort is a config key, overridden
+    # per-run with -c. Only sent when the user asked for one, so the value in
+    # ~/.codex/config.toml stays authoritative otherwise.
+    CODEX_ARGS=(exec --dangerously-bypass-approvals-and-sandbox -C "$PROJECT_ROOT")
+    [[ -n "$MODEL" ]] && CODEX_ARGS+=(--model "$MODEL")
+    [[ "$EFFORT_EXPLICIT" -eq 1 ]] && CODEX_ARGS+=(-c "model_reasoning_effort=\"$EFFORT\"")
+    OUTPUT=$(codex "${CODEX_ARGS[@]}" - < "$PROMPT_FILE" 2>&1 | tee /dev/stderr) || true
   fi
   
   # Check for completion signal

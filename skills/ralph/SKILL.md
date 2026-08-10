@@ -21,7 +21,7 @@ Take a PRD (markdown file or text) and convert it to `prd.json` in the current p
 ```json
 {
   "project": "[Project Name]",
-  "branchName": "ralph/[feature-name-kebab-case]",
+  "branchName": "[project-convention-prefix]/[few-words-kebab-case]",
   "description": "[Feature description from PRD title/intro]",
   "userStories": [
     {
@@ -122,7 +122,12 @@ Frontend stories are NOT complete until visually verified. Ralph will use the de
 2. **IDs**: Sequential (US-001, US-002, etc.)
 3. **Priority**: Based on dependency order, then document order
 4. **All stories**: `passes: false` and empty `notes`
-5. **branchName**: Derive from feature name, kebab-case, prefixed with `ralph/`
+5. **branchName**: Follow the target project's own convention — read `AGENTS.md`,
+   `CONTRIBUTING.md`, or the branch names already in `git log`. Fall back to git flow
+   (`feature/`, `fix/`, `hotfix/`, `chore/`, `docs/`, `refactor/`, `test/`) only when the
+   project documents nothing. Compress the work to a few kebab-case words after the prefix.
+   Never use a `ralph/` prefix — Ralph is the runner, not the project. Never put a story id
+   in the branch name. If the checkout is already on a working branch, use that name verbatim.
 6. **Always add**: "Typecheck passes" to every story's acceptance criteria
 
 ---
@@ -165,7 +170,7 @@ Add ability to mark tasks with different statuses.
 ```json
 {
   "project": "TaskApp",
-  "branchName": "ralph/task-status",
+  "branchName": "feature/task-status",
   "description": "Task Status Feature - Track task progress with status indicators",
   "userStories": [
     {
