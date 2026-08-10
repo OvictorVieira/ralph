@@ -31,9 +31,49 @@ have a tier where an exploratory or throwaway run is not a budget decision.
 - A measured comparison against a paid tool on the same PRD, so "good enough for
   throwaway runs" is a finding rather than an assumption.
 
+## Status
+
+US-001 and US-002 are **done** — OpenCode is a working `--tool` as of
+`feat: add agy, cursor and opencode tools, translate effort per tool`. What
+remains is the part this PRD actually exists for: the provider configuration and
+the measurement.
+
+### Discovered contract (US-001)
+
+Read from `opencode --help` and `opencode run --help`, v1 as installed:
+
+| Question | Answer |
+|---|---|
+| Headless invocation | `opencode run [message..]` |
+| Prompt supplied as | positional argument |
+| Approval suppression | `--auto` ("auto-approve permissions that are not explicitly denied") |
+| Model flag | `-m` / `--model`, format `provider/model` |
+| Reasoning effort | `--variant` — "model variant (provider-specific reasoning effort, e.g., high, max, minimal)" |
+| Model listing | `opencode models` — **answers without a sign-in**, unlike `agy models` and `cursor-agent --list-models` |
+| Config location | `~/.opencode/` |
+| Install location | `~/.opencode/bin/opencode`, not on PATH — Ralph resolves it there as a fallback |
+
+`opencode models` already returns free models, several of them Chinese, which is
+the tier this PRD was written for:
+
+```
+opencode/big-pickle
+opencode/deepseek-v4-flash-free
+opencode/laguna-s-2.1-free
+opencode/ling-3.0-tiny-free
+opencode/longcat-2.0-free
+opencode/mimo-v2.5-free
+opencode/nemotron-3-ultra-free
+opencode/north-mini-code-free
+```
+
+That changes the shape of US-003: the `-free` models are reachable through
+OpenCode's own gateway with no third-party API key at all. Configuring DeepSeek
+or Qwen directly is now a fallback, not the first move.
+
 ## User Stories
 
-### US-001: Establish OpenCode's actual non-interactive contract
+### ~~US-001: Establish OpenCode's actual non-interactive contract~~ — DONE
 
 **Description:** As a Ralph maintainer, I need OpenCode's real headless
 invocation documented before writing any integration, so that the tool arm is
@@ -57,7 +97,7 @@ inferred from the other four.
       (needed by `tool_configured_model` in `ralph.sh`)
 - [ ] Findings written into this file under a "Discovered contract" heading
 
-### US-002: Add the `opencode` tool arm to ralph.sh
+### ~~US-002: Add the `opencode` tool arm to ralph.sh~~ — DONE
 
 **Description:** As a user, I want `ralph --tool opencode` to run the loop, so
 that OpenCode is a first-class option rather than a fork.
@@ -76,16 +116,19 @@ that OpenCode is a first-class option rather than a fork.
 - [ ] The invocation branch uses the real flags from US-001
 - [ ] `bash -n ralph.sh` passes and `ralph --list-models` shows the new row
 
-### US-003: Document a Chinese-model provider configuration
+### US-003: Verify and document the free-model tier
 
 **Description:** As a user without a paid agent subscription, I want a copy-paste
 configuration that points OpenCode at a low-cost provider, so that a Ralph run
 costs cents instead of dollars.
 
 **Acceptance Criteria:**
-- [ ] At least one provider configured end to end and verified with a real
-      one-story run — DeepSeek, Qwen, GLM or Kimi, whichever US-001 shows
-      OpenCode supports most directly
+- [ ] A real one-story Ralph run completed on an `opencode/*-free` model, no
+      third-party API key involved — this is now the primary path, since
+      `opencode models` shows the free tier is reachable through OpenCode's own
+      gateway
+- [ ] A direct provider (DeepSeek, Qwen, GLM, Kimi) configured and verified only
+      if the free tier proves unusable — documented as the fallback it is
 - [ ] API key read from an environment variable. No key, and no `.env`
       containing one, is ever committed; `.gitignore` covers whatever file the
       config lives in if it can hold a secret
