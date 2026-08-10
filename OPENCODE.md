@@ -116,6 +116,13 @@ open a branch per story.
 - Commit by logical context, not automatically by file
 - Prefer the smallest number of commits that still preserves clear functional context
 - Do not split commits without a concrete contextual benefit
+- Never `git add -A` or `git add .` — stage every file explicitly, by path
+- Read `git status` before committing and account for every entry: staged on
+  purpose, or ignored on purpose. A file you did not intend to commit is a file
+  that belongs in `.gitignore`
+- When a path is run noise (logs, pid files, agent state), add the pattern to
+  `.gitignore` in its own `chore:` commit — and `git rm --cached` it if it is
+  already tracked, because `.gitignore` does not protect a tracked file
 - Never add `Co-authored-by` trailers to commits
 - Always use the repository's configured git author identity
 
