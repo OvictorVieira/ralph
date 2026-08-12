@@ -6,7 +6,7 @@ You are an autonomous coding agent working on a software project.
 
 1. Read the PRD at `prd.json` in the project root, or `tasks/prd.json` if the root file does not exist
 2. Read the progress log at `progress.txt` in the project root (check Codebase Patterns section first)
-3. Check you're on the correct branch from PRD `branchName`. If not, check it out or create from main.
+3. Establish your working branch — see **Branch Policy** below. Never invent a branch name.
 4. Pick the **highest priority** user story where `passes: false`
 5. Implement that single user story
 6. Run quality checks (e.g., typecheck, lint, test - use whatever your project requires)
@@ -70,6 +70,42 @@ Before committing, check if any edited files have learnings worth preserving in 
 
 Only update AGENTS.md if you have **genuinely reusable knowledge** that would help future work in that directory.
 
+## Branch Policy
+
+The project owns its branch convention. You follow it — you never invent one.
+
+**If HEAD is already on a branch other than the default** (`main` / `master`),
+that branch is your branch. Work on it. Do not rename it, do not create another,
+do not reconcile it against the PRD's `branchName`. A pinned branch is a
+deliberate choice by whoever set the checkout up — a git worktree, a release
+branch, a reviewer's tree — and overriding it silently moves work somewhere
+nobody is looking.
+
+**If HEAD is on the default branch**, create one:
+
+1. Read the convention out of the project itself, in this order: `AGENTS.md`,
+   `CLAUDE.md`, `CONTRIBUTING.md`, then the branch names the repo actually uses
+   (`git branch -a`, `git log --merges --oneline -20`). History is the most
+   reliable source — match what you see there, including the prefix vocabulary.
+2. If the project documents nothing and history shows no pattern, fall back to
+   git flow: `feature/`, `fix/`, `hotfix/`, `chore/`, `docs/`, `refactor/`,
+   `test/`.
+3. Branch from the updated default: `git fetch`, then branch off
+   `origin/<default-branch>` — never off another feature branch.
+
+**Naming.** Read the PRD, understand what the work actually is, and compress it
+to a few words. Two or three, kebab-case, after the prefix:
+
+- Good: `feature/order-webhooks`, `fix/consent-banner`, `chore/portable-preflight`
+- Bad: `feature/US-004/add-order-webhook-handling-and-retry-logic` — carries a
+  story id, restates the PRD, and nests a segment the project never uses
+
+Never include a story id. Never use a `ralph/` prefix: Ralph is the runner, not
+the project, and no repository's convention has a place for it.
+
+**One branch per PRD.** Every story in the PRD lands on the same branch. Do not
+open a branch per story.
+
 ## Quality Requirements
 
 - ALL commits must pass your project's quality checks (typecheck, lint, test)
@@ -80,6 +116,13 @@ Only update AGENTS.md if you have **genuinely reusable knowledge** that would he
 - Commit by logical context, not automatically by file
 - Prefer the smallest number of commits that still preserves clear functional context
 - Do not split commits without a concrete contextual benefit
+- Never `git add -A` or `git add .` — stage every file explicitly, by path
+- Read `git status` before committing and account for every entry: staged on
+  purpose, or ignored on purpose. A file you did not intend to commit is a file
+  that belongs in `.gitignore`
+- When a path is run noise (logs, pid files, agent state), add the pattern to
+  `.gitignore` in its own `chore:` commit — and `git rm --cached` it if it is
+  already tracked, because `.gitignore` does not protect a tracked file
 - Never add `Co-authored-by` trailers to commits
 - Always use the repository's configured git author identity
 
