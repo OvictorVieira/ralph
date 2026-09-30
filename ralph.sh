@@ -864,6 +864,7 @@ for i in $(seq 1 $MAX_ITERATIONS); do
   # No model is hardcoded. Ralph used to pin claude to `--model opus`, which
   # silently overrode the user's own configured default and went stale every
   # time a new model shipped. With no --model, each CLI uses its own default.
+  ITER_START=$SECONDS
   if [[ "$TOOL" == "amp" ]]; then
     AMP_ARGS=(--dangerously-allow-all)
     [[ -n "$MODEL" ]] && AMP_ARGS+=(--model "$MODEL")
@@ -910,26 +911,53 @@ for i in $(seq 1 $MAX_ITERATIONS); do
     OUTPUT=$(codex "${CODEX_ARGS[@]}" - < "$PROMPT_FILE" 2>&1 | tee "$TEE_TARGET") || true
   fi
   
-  # Quota / rate-limit / auth-failure detection. Every provider prints its own
-  # sentence; when a run bounces off a paywall or an expired session, the CLI
-  # exits 0 with a plain-English notice on stdout and NO real work happens.
-  # Without this check the loop happily "completes" a dozen no-op iterations
-  # and burns wall time while the user thinks Ralph is progressing. First
-  # match wins — the message goes to the terminal even when --verbose is off,
-  # and the loop halts non-zero so an outer script can react.
+  ITER_ELAPSED=$((SECONDS - ITER_START))
+  OUTPUT_BYTES=${#OUTPUT}
+
+  # Quota / rate-limit / auth-failure detection.
+  #
+  # Layer 1 — regex over captured OUTPUT. Every provider prints its own
+  # sentence when the account is paywalled or the token expired. First match
+  # wins.
+  #
+  # Layer 2 — anomaly heuristic. Some providers (agy for one) SUPPRESS the
+  # warning line when stdout is not a TTY — captured OUTPUT is then empty
+  # and the regex misses. In that case fall back on two provider-agnostic
+  # signals: the iteration exited in under ITER_MIN_SECONDS AND produced
+  # under OUTPUT_MIN_BYTES of stream. A real iteration takes minutes and
+  # emits kilobytes; a quota-bounced run exits in a few seconds with almost
+  # nothing on the wire. Threshold intentionally generous (fewer false
+  # halts) — a run that legitimately no-ops fast is rare and re-runnable.
   QUOTA_RE='(usage limit|quota reached|quota exceeded|rate limit|reached your limit|limit reached|limit exceeded|too many requests|upgrade to pro|purchase more credits|please upgrade your subscription|please sign in|not authenticated|not logged in|authentication (failed|required)|invalid api key|unauthorized|insufficient credit|payment required|429|resets in [0-9]+h|try again at [0-9])'
+  ITER_MIN_SECONDS=15
+  OUTPUT_MIN_BYTES=500
+  QUOTA_LINE=""
+  HALT_REASON=""
+
   if echo "$OUTPUT" | grep -qiE "$QUOTA_RE"; then
     QUOTA_LINE=$(echo "$OUTPUT" | grep -iE "$QUOTA_RE" | head -1)
+    HALT_REASON="quota/auth message in stream"
+  elif [[ "$ITER_ELAPSED" -lt "$ITER_MIN_SECONDS" && "$OUTPUT_BYTES" -lt "$OUTPUT_MIN_BYTES" ]]; then
+    QUOTA_LINE="(none captured — provider likely suppressed the warning when stdout was not a TTY)"
+    HALT_REASON="iteration ended in ${ITER_ELAPSED}s with only ${OUTPUT_BYTES} bytes of output (real iterations take minutes and emit kilobytes)"
+  fi
+
+  if [[ -n "$HALT_REASON" ]]; then
     echo ""
     echo "==============================================================="
-    echo "  Ralph halted: provider '$TOOL' returned a quota/auth error."
+    echo "  Ralph halted: provider '$TOOL' aborted iteration $i."
     echo "==============================================================="
+    echo "  Reason: $HALT_REASON"
     echo "  Signal: $QUOTA_LINE"
     echo ""
-    echo "  No real work happened on this iteration. Fix the account"
-    echo "  (upgrade, top up, re-authenticate) then rerun ralph — it"
-    echo "  will resume from the same prd.json where it left off."
-    echo "  Pass --verbose next time to see the full provider stream."
+    echo "  No real work happened on this iteration. Most common causes:"
+    echo "    - account quota / rate limit hit"
+    echo "    - session expired / not authenticated"
+    echo "    - provider CLI crashed on startup"
+    echo ""
+    echo "  Fix the account (upgrade, top up, re-authenticate) then rerun"
+    echo "  ralph — it will resume from the same prd.json. Pass --verbose"
+    echo "  next time to see the full provider stream on stderr."
     exit 2
   fi
 
