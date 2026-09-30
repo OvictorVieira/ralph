@@ -33,6 +33,11 @@ Options:
                      chosen tool does not accept is an error, not a downgrade.
                      Default: medium.
   --effort=LEVEL     Same as above
+  -v, --verbose      Stream the tool's raw stdout/stderr to the terminal as it
+                     runs. Off by default — the loop stays quiet and only the
+                     iteration headers show. Turn it on to watch the agent
+                     work (file contents, tool calls, thinking). progress.txt
+                     and prd.json are written regardless.
   -h, --help         Show this help message
 
 Arguments:
@@ -464,6 +469,7 @@ MAX_ITERATIONS=10
 EFFORT="medium"
 EFFORT_EXPLICIT=0
 MODEL=""
+VERBOSE=0
 
 while [[ $# -gt 0 ]]; do
   case $1 in
@@ -542,6 +548,10 @@ while [[ $# -gt 0 ]]; do
     --list-models)
       print_models
       exit 0
+      ;;
+    -v|--verbose)
+      VERBOSE=1
+      shift
       ;;
     *)
       if [[ "$1" =~ ^[0-9]+$ ]]; then
@@ -807,30 +817,53 @@ fi
 
 cd "$PROJECT_ROOT"
 
-echo "Starting Ralph - Tool: $TOOL - Max iterations: $MAX_ITERATIONS"
-echo "Project root: $PROJECT_ROOT"
-echo "PRD file: $PRD_FILE"
-echo "Prompt file: $PROMPT_FILE"
-if [[ -n "$MODEL" ]]; then
-  echo "Model: $MODEL"
+# Startup-banner colors. Only paint when stdout is a real terminal so a
+# piped or redirected ralph invocation stays clean of ANSI escapes.
+if [[ -t 1 ]]; then
+  C_LABEL=$'\033[1;36m'     # bold cyan — field name
+  C_VALUE=$'\033[0m'         # reset — value (default)
+  C_ACCENT=$'\033[1;35m'     # bold magenta — tool / branch (identity fields)
+  C_MUTED=$'\033[2;37m'      # dim grey — long paths / default hints
+  C_BANNER=$'\033[1;34m'     # bold blue — Starting line
+  C_RESET=$'\033[0m'
 else
-  echo "Model: ${TOOL} default ($(tool_configured_model "$TOOL" 2>/dev/null || true))"
+  C_LABEL=""; C_VALUE=""; C_ACCENT=""; C_MUTED=""; C_BANNER=""; C_RESET=""
+fi
+
+echo "${C_BANNER}Starting Ralph${C_RESET} — ${C_LABEL}Tool:${C_RESET} ${C_ACCENT}$TOOL${C_RESET}   ${C_LABEL}Max iterations:${C_RESET} $MAX_ITERATIONS"
+echo "${C_LABEL}Project root:${C_RESET} ${C_MUTED}$PROJECT_ROOT${C_RESET}"
+echo "${C_LABEL}PRD file:${C_RESET}     ${C_MUTED}$PRD_FILE${C_RESET}"
+echo "${C_LABEL}Prompt file:${C_RESET}  ${C_MUTED}$PROMPT_FILE${C_RESET}"
+if [[ -n "$MODEL" ]]; then
+  echo "${C_LABEL}Model:${C_RESET}        $MODEL"
+else
+  echo "${C_LABEL}Model:${C_RESET}        ${TOOL} default ${C_MUTED}($(tool_configured_model "$TOOL" 2>/dev/null || true))${C_RESET}"
 fi
 if [[ "$TOOL" == "claude" ]]; then
-  echo "Effort: $EFFORT"
+  echo "${C_LABEL}Effort:${C_RESET}       $EFFORT"
 elif tool_supports_effort "$TOOL" && [[ "$EFFORT_EXPLICIT" -eq 1 ]]; then
-  echo "Effort: $EFFORT"
+  echo "${C_LABEL}Effort:${C_RESET}       $EFFORT"
 elif tool_supports_effort "$TOOL"; then
-  echo "Effort: ${TOOL} default (no --effort given)"
+  echo "${C_LABEL}Effort:${C_RESET}       ${TOOL} default ${C_MUTED}(no --effort given)${C_RESET}"
 fi
 RUNNING_BRANCH="$(jq -r '.branchName // empty' "$PRD_FILE" 2>/dev/null || true)"
 if [[ -n "$RUNNING_BRANCH" ]]; then
-  echo "Target branch: $RUNNING_BRANCH"
+  echo "${C_LABEL}Target branch:${C_RESET} ${C_ACCENT}$RUNNING_BRANCH${C_RESET}"
 else
-  echo "Target branch: (agent will create one following the project's convention)"
+  echo "${C_LABEL}Target branch:${C_RESET} ${C_MUTED}(agent will create one following the project's convention)${C_RESET}"
 fi
 if [[ -n "${GIT_AUTHOR_EMAIL:-}" ]]; then
-  echo "Commit email: $GIT_AUTHOR_EMAIL"
+  echo "${C_LABEL}Commit email:${C_RESET} ${GIT_AUTHOR_EMAIL}"
+fi
+
+# Verbose streams the tool's raw output to the terminal; quiet (the default)
+# captures it for the completion-signal grep but never displays it. claude
+# --print is already quiet on its own, but codex exec and agy --print stream
+# every Read/Grep/tool call — so the flag matters most for those two.
+if [[ "$VERBOSE" -eq 1 ]]; then
+  TEE_TARGET="/dev/stderr"
+else
+  TEE_TARGET="/dev/null"
 fi
 
 for i in $(seq 1 $MAX_ITERATIONS); do
@@ -844,42 +877,43 @@ for i in $(seq 1 $MAX_ITERATIONS); do
   # No model is hardcoded. Ralph used to pin claude to `--model opus`, which
   # silently overrode the user's own configured default and went stale every
   # time a new model shipped. With no --model, each CLI uses its own default.
+  ITER_START=$SECONDS
   if [[ "$TOOL" == "amp" ]]; then
     AMP_ARGS=(--dangerously-allow-all)
     [[ -n "$MODEL" ]] && AMP_ARGS+=(--model "$MODEL")
-    OUTPUT=$(amp "${AMP_ARGS[@]}" < "$PROMPT_FILE" 2>&1 | tee /dev/stderr) || true
+    OUTPUT=$(amp "${AMP_ARGS[@]}" < "$PROMPT_FILE" 2>&1 | tee "$TEE_TARGET") || true
   elif [[ "$TOOL" == "claude" ]]; then
     # Claude Code: --dangerously-skip-permissions for autonomous operation, --print for output
     CLAUDE_ARGS=(--effort "$EFFORT" --dangerously-skip-permissions --print)
     [[ -n "$MODEL" ]] && CLAUDE_ARGS+=(--model "$MODEL")
-    OUTPUT=$(claude "${CLAUDE_ARGS[@]}" < "$PROMPT_FILE" 2>&1 | tee /dev/stderr) || true
+    OUTPUT=$(claude "${CLAUDE_ARGS[@]}" < "$PROMPT_FILE" 2>&1 | tee "$TEE_TARGET") || true
   elif [[ "$TOOL" == "agy" ]]; then
     # Antigravity: same shape as claude — --print reads the prompt from stdin.
     AGY_ARGS=(--print --dangerously-skip-permissions)
     [[ -n "$MODEL" ]] && AGY_ARGS+=(--model "$MODEL")
     [[ "$EFFORT_EXPLICIT" -eq 1 ]] && AGY_ARGS+=(--effort "$EFFORT")
-    OUTPUT=$(agy "${AGY_ARGS[@]}" < "$PROMPT_FILE" 2>&1 | tee /dev/stderr) || true
+    OUTPUT=$(agy "${AGY_ARGS[@]}" < "$PROMPT_FILE" 2>&1 | tee "$TEE_TARGET") || true
   elif [[ "$TOOL" == "cursor" ]]; then
     # cursor-agent takes the prompt as a positional argument, and carries effort
     # inside the model string rather than as its own flag.
     CURSOR_ARGS=(--print --force)
     CURSOR_MODEL="$(cursor_model_argument "$MODEL" "$EFFORT_EXPLICIT" "$EFFORT")"
     [[ -n "$CURSOR_MODEL" ]] && CURSOR_ARGS+=(--model "$CURSOR_MODEL")
-    OUTPUT=$(cursor-agent "${CURSOR_ARGS[@]}" "$(<"$PROMPT_FILE")" 2>&1 | tee /dev/stderr) || true
+    OUTPUT=$(cursor-agent "${CURSOR_ARGS[@]}" "$(<"$PROMPT_FILE")" 2>&1 | tee "$TEE_TARGET") || true
   elif [[ "$TOOL" == "opencode" ]]; then
     # opencode run takes the prompt positionally; effort is --variant, and model
     # ids are provider-qualified (provider/model).
     OPENCODE_ARGS=(run --auto)
     [[ -n "$MODEL" ]] && OPENCODE_ARGS+=(--model "$MODEL")
     [[ "$EFFORT_EXPLICIT" -eq 1 ]] && OPENCODE_ARGS+=(--variant "$EFFORT")
-    OUTPUT=$("$OPENCODE_BIN" "${OPENCODE_ARGS[@]}" "$(<"$PROMPT_FILE")" 2>&1 | tee /dev/stderr) || true
+    OUTPUT=$("$OPENCODE_BIN" "${OPENCODE_ARGS[@]}" "$(<"$PROMPT_FILE")" 2>&1 | tee "$TEE_TARGET") || true
   elif [[ "$TOOL" == "gemini" ]]; then
     # Gemini CLI has no effort knob; --approval-mode yolo is the current spelling
     # of the old -y/--yolo flag. Superseded by agy (Antigravity) — kept for
     # anyone still on gemini-cli.
     GEMINI_ARGS=(--approval-mode yolo)
     [[ -n "$MODEL" ]] && GEMINI_ARGS+=(--model "$MODEL")
-    OUTPUT=$(gemini "${GEMINI_ARGS[@]}" --prompt "$(<"$PROMPT_FILE")" 2>&1 | tee /dev/stderr) || true
+    OUTPUT=$(gemini "${GEMINI_ARGS[@]}" --prompt "$(<"$PROMPT_FILE")" 2>&1 | tee "$TEE_TARGET") || true
   else
     # Codex has no --effort flag: reasoning effort is a config key, overridden
     # per-run with -c. Only sent when the user asked for one, so the value in
@@ -887,9 +921,68 @@ for i in $(seq 1 $MAX_ITERATIONS); do
     CODEX_ARGS=(exec --dangerously-bypass-approvals-and-sandbox -C "$PROJECT_ROOT")
     [[ -n "$MODEL" ]] && CODEX_ARGS+=(--model "$MODEL")
     [[ "$EFFORT_EXPLICIT" -eq 1 ]] && CODEX_ARGS+=(-c "model_reasoning_effort=\"$EFFORT\"")
-    OUTPUT=$(codex "${CODEX_ARGS[@]}" - < "$PROMPT_FILE" 2>&1 | tee /dev/stderr) || true
+    OUTPUT=$(codex "${CODEX_ARGS[@]}" - < "$PROMPT_FILE" 2>&1 | tee "$TEE_TARGET") || true
   fi
   
+  ITER_ELAPSED=$((SECONDS - ITER_START))
+  OUTPUT_BYTES=${#OUTPUT}
+
+  # Quota / rate-limit / auth-failure detection.
+  #
+  # Layer 1 — regex over captured OUTPUT. Every provider prints its own
+  # sentence when the account is paywalled or the token expired. First match
+  # wins.
+  #
+  # Layer 2 — anomaly heuristic. Some providers (agy for one) SUPPRESS the
+  # warning line when stdout is not a TTY — captured OUTPUT is then empty
+  # and the regex misses. In that case fall back on two provider-agnostic
+  # signals: the iteration exited in under ITER_MIN_SECONDS AND produced
+  # under OUTPUT_MIN_BYTES of stream. A real iteration takes minutes and
+  # emits kilobytes; a quota-bounced run exits in a few seconds with almost
+  # nothing on the wire. Threshold intentionally generous (fewer false
+  # halts) — a run that legitimately no-ops fast is rare and re-runnable.
+  QUOTA_RE='(usage limit|quota reached|quota exceeded|rate limit|reached your limit|limit reached|limit exceeded|too many requests|upgrade to pro|purchase more credits|please upgrade your subscription|please sign in|not authenticated|not logged in|authentication (failed|required)|invalid api key|unauthorized|insufficient credit|payment required|429|resets in [0-9]+h|try again at [0-9])'
+  ITER_MIN_SECONDS=15
+  OUTPUT_MIN_BYTES=500
+  QUOTA_LINE=""
+  HALT_REASON=""
+
+  if echo "$OUTPUT" | grep -qiE "$QUOTA_RE"; then
+    QUOTA_LINE=$(echo "$OUTPUT" | grep -iE "$QUOTA_RE" | head -1)
+    HALT_REASON="quota/auth message in stream"
+  elif [[ "$ITER_ELAPSED" -lt "$ITER_MIN_SECONDS" && "$OUTPUT_BYTES" -lt "$OUTPUT_MIN_BYTES" ]]; then
+    QUOTA_LINE="(none captured — provider likely suppressed the warning when stdout was not a TTY)"
+    HALT_REASON="iteration ended in ${ITER_ELAPSED}s with only ${OUTPUT_BYTES} bytes of output (real iterations take minutes and emit kilobytes)"
+  fi
+
+  if [[ -n "$HALT_REASON" ]]; then
+    # Colorize only when stderr is a real terminal — piping ralph's output
+    # to a file or another process must not embed ANSI escapes there.
+    if [[ -t 2 ]]; then
+      R=$'\033[1;31m'; Y=$'\033[1;33m'; B=$'\033[1m'; N=$'\033[0m'
+    else
+      R=""; Y=""; B=""; N=""
+    fi
+    {
+      echo ""
+      echo "${R}===============================================================${N}"
+      echo "${R}${B}  ⛔ Ralph halted: provider '$TOOL' aborted iteration $i.${N}"
+      echo "${R}===============================================================${N}"
+      echo "${Y}  Reason:${N} $HALT_REASON"
+      echo "${Y}  Signal:${N} ${R}${QUOTA_LINE}${N}"
+      echo ""
+      echo "  No real work happened on this iteration. Most common causes:"
+      echo "    - account quota / rate limit hit"
+      echo "    - session expired / not authenticated"
+      echo "    - provider CLI crashed on startup"
+      echo ""
+      echo "  Fix the account (upgrade, top up, re-authenticate) then rerun"
+      echo "  ralph — it will resume from the same prd.json. Pass --verbose"
+      echo "  next time to see the full provider stream on stderr."
+    } >&2
+    exit 2
+  fi
+
   # Check for completion signal
   if echo "$OUTPUT" | grep -q "<promise>COMPLETE</promise>"; then
     echo ""
@@ -897,7 +990,7 @@ for i in $(seq 1 $MAX_ITERATIONS); do
     echo "Completed at iteration $i of $MAX_ITERATIONS"
     exit 0
   fi
-  
+
   echo "Iteration $i complete. Continuing..."
   sleep 2
 done
