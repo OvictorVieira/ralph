@@ -943,21 +943,30 @@ for i in $(seq 1 $MAX_ITERATIONS); do
   fi
 
   if [[ -n "$HALT_REASON" ]]; then
-    echo ""
-    echo "==============================================================="
-    echo "  Ralph halted: provider '$TOOL' aborted iteration $i."
-    echo "==============================================================="
-    echo "  Reason: $HALT_REASON"
-    echo "  Signal: $QUOTA_LINE"
-    echo ""
-    echo "  No real work happened on this iteration. Most common causes:"
-    echo "    - account quota / rate limit hit"
-    echo "    - session expired / not authenticated"
-    echo "    - provider CLI crashed on startup"
-    echo ""
-    echo "  Fix the account (upgrade, top up, re-authenticate) then rerun"
-    echo "  ralph — it will resume from the same prd.json. Pass --verbose"
-    echo "  next time to see the full provider stream on stderr."
+    # Colorize only when stderr is a real terminal — piping ralph's output
+    # to a file or another process must not embed ANSI escapes there.
+    if [[ -t 2 ]]; then
+      R=$'\033[1;31m'; Y=$'\033[1;33m'; B=$'\033[1m'; N=$'\033[0m'
+    else
+      R=""; Y=""; B=""; N=""
+    fi
+    {
+      echo ""
+      echo "${R}===============================================================${N}"
+      echo "${R}${B}  ⛔ Ralph halted: provider '$TOOL' aborted iteration $i.${N}"
+      echo "${R}===============================================================${N}"
+      echo "${Y}  Reason:${N} $HALT_REASON"
+      echo "${Y}  Signal:${N} $QUOTA_LINE"
+      echo ""
+      echo "  No real work happened on this iteration. Most common causes:"
+      echo "    - account quota / rate limit hit"
+      echo "    - session expired / not authenticated"
+      echo "    - provider CLI crashed on startup"
+      echo ""
+      echo "  Fix the account (upgrade, top up, re-authenticate) then rerun"
+      echo "  ralph — it will resume from the same prd.json. Pass --verbose"
+      echo "  next time to see the full provider stream on stderr."
+    } >&2
     exit 2
   fi
 
