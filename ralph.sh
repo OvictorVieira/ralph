@@ -910,6 +910,29 @@ for i in $(seq 1 $MAX_ITERATIONS); do
     OUTPUT=$(codex "${CODEX_ARGS[@]}" - < "$PROMPT_FILE" 2>&1 | tee "$TEE_TARGET") || true
   fi
   
+  # Quota / rate-limit / auth-failure detection. Every provider prints its own
+  # sentence; when a run bounces off a paywall or an expired session, the CLI
+  # exits 0 with a plain-English notice on stdout and NO real work happens.
+  # Without this check the loop happily "completes" a dozen no-op iterations
+  # and burns wall time while the user thinks Ralph is progressing. First
+  # match wins — the message goes to the terminal even when --verbose is off,
+  # and the loop halts non-zero so an outer script can react.
+  QUOTA_RE='(usage limit|quota reached|quota exceeded|rate limit|reached your limit|limit reached|limit exceeded|too many requests|upgrade to pro|purchase more credits|please upgrade your subscription|please sign in|not authenticated|not logged in|authentication (failed|required)|invalid api key|unauthorized|insufficient credit|payment required|429|resets in [0-9]+h|try again at [0-9])'
+  if echo "$OUTPUT" | grep -qiE "$QUOTA_RE"; then
+    QUOTA_LINE=$(echo "$OUTPUT" | grep -iE "$QUOTA_RE" | head -1)
+    echo ""
+    echo "==============================================================="
+    echo "  Ralph halted: provider '$TOOL' returned a quota/auth error."
+    echo "==============================================================="
+    echo "  Signal: $QUOTA_LINE"
+    echo ""
+    echo "  No real work happened on this iteration. Fix the account"
+    echo "  (upgrade, top up, re-authenticate) then rerun ralph — it"
+    echo "  will resume from the same prd.json where it left off."
+    echo "  Pass --verbose next time to see the full provider stream."
+    exit 2
+  fi
+
   # Check for completion signal
   if echo "$OUTPUT" | grep -q "<promise>COMPLETE</promise>"; then
     echo ""
@@ -917,7 +940,7 @@ for i in $(seq 1 $MAX_ITERATIONS); do
     echo "Completed at iteration $i of $MAX_ITERATIONS"
     exit 0
   fi
-  
+
   echo "Iteration $i complete. Continuing..."
   sleep 2
 done
