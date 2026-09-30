@@ -817,30 +817,43 @@ fi
 
 cd "$PROJECT_ROOT"
 
-echo "Starting Ralph - Tool: $TOOL - Max iterations: $MAX_ITERATIONS"
-echo "Project root: $PROJECT_ROOT"
-echo "PRD file: $PRD_FILE"
-echo "Prompt file: $PROMPT_FILE"
-if [[ -n "$MODEL" ]]; then
-  echo "Model: $MODEL"
+# Startup-banner colors. Only paint when stdout is a real terminal so a
+# piped or redirected ralph invocation stays clean of ANSI escapes.
+if [[ -t 1 ]]; then
+  C_LABEL=$'\033[1;36m'     # bold cyan — field name
+  C_VALUE=$'\033[0m'         # reset — value (default)
+  C_ACCENT=$'\033[1;35m'     # bold magenta — tool / branch (identity fields)
+  C_MUTED=$'\033[2;37m'      # dim grey — long paths / default hints
+  C_BANNER=$'\033[1;34m'     # bold blue — Starting line
+  C_RESET=$'\033[0m'
 else
-  echo "Model: ${TOOL} default ($(tool_configured_model "$TOOL" 2>/dev/null || true))"
+  C_LABEL=""; C_VALUE=""; C_ACCENT=""; C_MUTED=""; C_BANNER=""; C_RESET=""
+fi
+
+echo "${C_BANNER}Starting Ralph${C_RESET} — ${C_LABEL}Tool:${C_RESET} ${C_ACCENT}$TOOL${C_RESET}   ${C_LABEL}Max iterations:${C_RESET} $MAX_ITERATIONS"
+echo "${C_LABEL}Project root:${C_RESET} ${C_MUTED}$PROJECT_ROOT${C_RESET}"
+echo "${C_LABEL}PRD file:${C_RESET}     ${C_MUTED}$PRD_FILE${C_RESET}"
+echo "${C_LABEL}Prompt file:${C_RESET}  ${C_MUTED}$PROMPT_FILE${C_RESET}"
+if [[ -n "$MODEL" ]]; then
+  echo "${C_LABEL}Model:${C_RESET}        $MODEL"
+else
+  echo "${C_LABEL}Model:${C_RESET}        ${TOOL} default ${C_MUTED}($(tool_configured_model "$TOOL" 2>/dev/null || true))${C_RESET}"
 fi
 if [[ "$TOOL" == "claude" ]]; then
-  echo "Effort: $EFFORT"
+  echo "${C_LABEL}Effort:${C_RESET}       $EFFORT"
 elif tool_supports_effort "$TOOL" && [[ "$EFFORT_EXPLICIT" -eq 1 ]]; then
-  echo "Effort: $EFFORT"
+  echo "${C_LABEL}Effort:${C_RESET}       $EFFORT"
 elif tool_supports_effort "$TOOL"; then
-  echo "Effort: ${TOOL} default (no --effort given)"
+  echo "${C_LABEL}Effort:${C_RESET}       ${TOOL} default ${C_MUTED}(no --effort given)${C_RESET}"
 fi
 RUNNING_BRANCH="$(jq -r '.branchName // empty' "$PRD_FILE" 2>/dev/null || true)"
 if [[ -n "$RUNNING_BRANCH" ]]; then
-  echo "Target branch: $RUNNING_BRANCH"
+  echo "${C_LABEL}Target branch:${C_RESET} ${C_ACCENT}$RUNNING_BRANCH${C_RESET}"
 else
-  echo "Target branch: (agent will create one following the project's convention)"
+  echo "${C_LABEL}Target branch:${C_RESET} ${C_MUTED}(agent will create one following the project's convention)${C_RESET}"
 fi
 if [[ -n "${GIT_AUTHOR_EMAIL:-}" ]]; then
-  echo "Commit email: $GIT_AUTHOR_EMAIL"
+  echo "${C_LABEL}Commit email:${C_RESET} ${GIT_AUTHOR_EMAIL}"
 fi
 
 # Verbose streams the tool's raw output to the terminal; quiet (the default)
@@ -956,7 +969,7 @@ for i in $(seq 1 $MAX_ITERATIONS); do
       echo "${R}${B}  ⛔ Ralph halted: provider '$TOOL' aborted iteration $i.${N}"
       echo "${R}===============================================================${N}"
       echo "${Y}  Reason:${N} $HALT_REASON"
-      echo "${Y}  Signal:${N} $QUOTA_LINE"
+      echo "${Y}  Signal:${N} ${R}${QUOTA_LINE}${N}"
       echo ""
       echo "  No real work happened on this iteration. Most common causes:"
       echo "    - account quota / rate limit hit"
