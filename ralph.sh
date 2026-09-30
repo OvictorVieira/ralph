@@ -33,6 +33,11 @@ Options:
                      chosen tool does not accept is an error, not a downgrade.
                      Default: medium.
   --effort=LEVEL     Same as above
+  -v, --verbose      Stream the tool's raw stdout/stderr to the terminal as it
+                     runs. Off by default — the loop stays quiet and only the
+                     iteration headers show. Turn it on to watch the agent
+                     work (file contents, tool calls, thinking). progress.txt
+                     and prd.json are written regardless.
   -h, --help         Show this help message
 
 Arguments:
@@ -464,6 +469,7 @@ MAX_ITERATIONS=10
 EFFORT="medium"
 EFFORT_EXPLICIT=0
 MODEL=""
+VERBOSE=0
 
 while [[ $# -gt 0 ]]; do
   case $1 in
@@ -542,6 +548,10 @@ while [[ $# -gt 0 ]]; do
     --list-models)
       print_models
       exit 0
+      ;;
+    -v|--verbose)
+      VERBOSE=1
+      shift
       ;;
     *)
       if [[ "$1" =~ ^[0-9]+$ ]]; then
@@ -833,6 +843,16 @@ if [[ -n "${GIT_AUTHOR_EMAIL:-}" ]]; then
   echo "Commit email: $GIT_AUTHOR_EMAIL"
 fi
 
+# Verbose streams the tool's raw output to the terminal; quiet (the default)
+# captures it for the completion-signal grep but never displays it. claude
+# --print is already quiet on its own, but codex exec and agy --print stream
+# every Read/Grep/tool call — so the flag matters most for those two.
+if [[ "$VERBOSE" -eq 1 ]]; then
+  TEE_TARGET="/dev/stderr"
+else
+  TEE_TARGET="/dev/null"
+fi
+
 for i in $(seq 1 $MAX_ITERATIONS); do
   echo ""
   echo "==============================================================="
@@ -847,39 +867,39 @@ for i in $(seq 1 $MAX_ITERATIONS); do
   if [[ "$TOOL" == "amp" ]]; then
     AMP_ARGS=(--dangerously-allow-all)
     [[ -n "$MODEL" ]] && AMP_ARGS+=(--model "$MODEL")
-    OUTPUT=$(amp "${AMP_ARGS[@]}" < "$PROMPT_FILE" 2>&1 | tee /dev/stderr) || true
+    OUTPUT=$(amp "${AMP_ARGS[@]}" < "$PROMPT_FILE" 2>&1 | tee "$TEE_TARGET") || true
   elif [[ "$TOOL" == "claude" ]]; then
     # Claude Code: --dangerously-skip-permissions for autonomous operation, --print for output
     CLAUDE_ARGS=(--effort "$EFFORT" --dangerously-skip-permissions --print)
     [[ -n "$MODEL" ]] && CLAUDE_ARGS+=(--model "$MODEL")
-    OUTPUT=$(claude "${CLAUDE_ARGS[@]}" < "$PROMPT_FILE" 2>&1 | tee /dev/stderr) || true
+    OUTPUT=$(claude "${CLAUDE_ARGS[@]}" < "$PROMPT_FILE" 2>&1 | tee "$TEE_TARGET") || true
   elif [[ "$TOOL" == "agy" ]]; then
     # Antigravity: same shape as claude — --print reads the prompt from stdin.
     AGY_ARGS=(--print --dangerously-skip-permissions)
     [[ -n "$MODEL" ]] && AGY_ARGS+=(--model "$MODEL")
     [[ "$EFFORT_EXPLICIT" -eq 1 ]] && AGY_ARGS+=(--effort "$EFFORT")
-    OUTPUT=$(agy "${AGY_ARGS[@]}" < "$PROMPT_FILE" 2>&1 | tee /dev/stderr) || true
+    OUTPUT=$(agy "${AGY_ARGS[@]}" < "$PROMPT_FILE" 2>&1 | tee "$TEE_TARGET") || true
   elif [[ "$TOOL" == "cursor" ]]; then
     # cursor-agent takes the prompt as a positional argument, and carries effort
     # inside the model string rather than as its own flag.
     CURSOR_ARGS=(--print --force)
     CURSOR_MODEL="$(cursor_model_argument "$MODEL" "$EFFORT_EXPLICIT" "$EFFORT")"
     [[ -n "$CURSOR_MODEL" ]] && CURSOR_ARGS+=(--model "$CURSOR_MODEL")
-    OUTPUT=$(cursor-agent "${CURSOR_ARGS[@]}" "$(<"$PROMPT_FILE")" 2>&1 | tee /dev/stderr) || true
+    OUTPUT=$(cursor-agent "${CURSOR_ARGS[@]}" "$(<"$PROMPT_FILE")" 2>&1 | tee "$TEE_TARGET") || true
   elif [[ "$TOOL" == "opencode" ]]; then
     # opencode run takes the prompt positionally; effort is --variant, and model
     # ids are provider-qualified (provider/model).
     OPENCODE_ARGS=(run --auto)
     [[ -n "$MODEL" ]] && OPENCODE_ARGS+=(--model "$MODEL")
     [[ "$EFFORT_EXPLICIT" -eq 1 ]] && OPENCODE_ARGS+=(--variant "$EFFORT")
-    OUTPUT=$("$OPENCODE_BIN" "${OPENCODE_ARGS[@]}" "$(<"$PROMPT_FILE")" 2>&1 | tee /dev/stderr) || true
+    OUTPUT=$("$OPENCODE_BIN" "${OPENCODE_ARGS[@]}" "$(<"$PROMPT_FILE")" 2>&1 | tee "$TEE_TARGET") || true
   elif [[ "$TOOL" == "gemini" ]]; then
     # Gemini CLI has no effort knob; --approval-mode yolo is the current spelling
     # of the old -y/--yolo flag. Superseded by agy (Antigravity) — kept for
     # anyone still on gemini-cli.
     GEMINI_ARGS=(--approval-mode yolo)
     [[ -n "$MODEL" ]] && GEMINI_ARGS+=(--model "$MODEL")
-    OUTPUT=$(gemini "${GEMINI_ARGS[@]}" --prompt "$(<"$PROMPT_FILE")" 2>&1 | tee /dev/stderr) || true
+    OUTPUT=$(gemini "${GEMINI_ARGS[@]}" --prompt "$(<"$PROMPT_FILE")" 2>&1 | tee "$TEE_TARGET") || true
   else
     # Codex has no --effort flag: reasoning effort is a config key, overridden
     # per-run with -c. Only sent when the user asked for one, so the value in
@@ -887,7 +907,7 @@ for i in $(seq 1 $MAX_ITERATIONS); do
     CODEX_ARGS=(exec --dangerously-bypass-approvals-and-sandbox -C "$PROJECT_ROOT")
     [[ -n "$MODEL" ]] && CODEX_ARGS+=(--model "$MODEL")
     [[ "$EFFORT_EXPLICIT" -eq 1 ]] && CODEX_ARGS+=(-c "model_reasoning_effort=\"$EFFORT\"")
-    OUTPUT=$(codex "${CODEX_ARGS[@]}" - < "$PROMPT_FILE" 2>&1 | tee /dev/stderr) || true
+    OUTPUT=$(codex "${CODEX_ARGS[@]}" - < "$PROMPT_FILE" 2>&1 | tee "$TEE_TARGET") || true
   fi
   
   # Check for completion signal
