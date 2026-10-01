@@ -2,7 +2,9 @@
 
 ![Ralph](ralph.webp)
 
-Ralph is an autonomous AI agent loop that runs AI coding tools ([Claude Code](https://docs.anthropic.com/en/docs/claude-code), Codex CLI, Antigravity, Cursor Agent, OpenCode, [Amp](https://ampcode.com), or Gemini CLI) repeatedly until all PRD items are complete. Each iteration is a fresh instance with clean context. Memory persists via git history, `progress.txt`, and `prd.json`.
+Ralph is an autonomous AI agent loop that runs AI coding tools ([Claude Code](https://docs.anthropic.com/en/docs/claude-code), Codex CLI, Antigravity, Cursor Agent, OpenCode, or [Amp](https://ampcode.com)) repeatedly until all PRD items are complete. Each iteration is a fresh instance with clean context. Memory persists via git history, `progress.txt`, and `prd.json`.
+
+> Historical note: Gemini CLI used to be supported and was superseded by Antigravity (`agy`); the gemini tool entry has been removed.
 
 Based on [Geoffrey Huntley's Ralph pattern](https://ghuntley.com/ralph/).
 
@@ -17,7 +19,6 @@ Based on [Geoffrey Huntley's Ralph pattern](https://ghuntley.com/ralph/).
   - Cursor Agent (`cursor-agent`)
   - [OpenCode](https://github.com/sst/opencode)
   - [Amp CLI](https://ampcode.com) (the historical default)
-  - Gemini CLI (superseded by Antigravity)
 - `jq` installed (`brew install jq` on macOS)
 - A git repository for your project
 
@@ -38,7 +39,6 @@ This installs:
 - `~/.local/share/ralph/ralph.sh`
 - `~/.local/share/ralph/AMP.md`
 - `~/.local/share/ralph/CLAUDE.md`
-- `~/.local/share/ralph/GEMINI.md`
 - `~/.local/share/ralph/CODEX.md`
 - `~/.local/share/ralph/AGY.md`
 - `~/.local/share/ralph/CURSOR.md`
@@ -76,7 +76,6 @@ mkdir -p scripts/ralph
 cp /path/to/ralph/ralph.sh scripts/ralph/
 cp /path/to/ralph/AMP.md scripts/ralph/AMP.md
 cp /path/to/ralph/CLAUDE.md scripts/ralph/CLAUDE.md
-cp /path/to/ralph/GEMINI.md scripts/ralph/GEMINI.md
 cp /path/to/ralph/CODEX.md scripts/ralph/CODEX.md
 cp /path/to/ralph/AGY.md scripts/ralph/AGY.md
 cp /path/to/ralph/CURSOR.md scripts/ralph/CURSOR.md
@@ -196,7 +195,6 @@ Default is 10 iterations. See the tool table below for what each one supports.
 | `cursor` | `cursor-agent` | `--model` | `model[effort=…]` — needs `--model` |
 | `opencode` | `opencode` | `-m provider/model` | `--variant` |
 | `amp` | `amp` | `--model` | none |
-| `gemini` | `gemini` | `--model` | none — superseded by `agy` |
 
 `opencode` is found at `~/.opencode/bin/opencode` when it is not on PATH.
 
@@ -243,8 +241,8 @@ ralph --agy --effort xhigh
 
 Every range above came from the CLI itself — `claude --effort bogus` names its
 valid values, `agy --help` documents its own, `cursor-agent --help` shows the
-bracket-override form. Amp and Gemini have no such knob at all, so `--effort`
-there is rejected rather than dropped.
+bracket-override form. Amp has no such knob at all, so `--effort` there is
+rejected rather than dropped.
 
 ### Branches
 
@@ -278,7 +276,6 @@ Ralph will:
 | `CURSOR.md` | Prompt template for Cursor Agent |
 | `OPENCODE.md` | Prompt template for OpenCode |
 | `CLAUDE.md` | Prompt template for Claude Code |
-| `GEMINI.md` | Prompt template for Gemini CLI |
 | `CODEX.md` | Prompt template for Codex CLI |
 | `prd.json` | User stories with `passes` status (the task list) |
 | `prd.json.example` | Example PRD format for reference |
@@ -379,7 +376,7 @@ If you use the global install and want custom prompts per machine, edit the file
 
 ### How the driver prompt is resolved
 
-Each prompt is named after its tool — `CLAUDE.md`, `GEMINI.md`, `CURSOR.md` —
+Each prompt is named after its tool — `CLAUDE.md`, `CURSOR.md`, `CODEX.md` —
 and that is the same name those tools use for a project's own rules file. Many
 repos already ship one. It is rules for the agent, not a Ralph driver, and the
 agent loads it on its own; if Ralph fed it to the loop as the driver, the

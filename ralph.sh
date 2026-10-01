@@ -1,17 +1,17 @@
 #!/bin/bash
 # Ralph Wiggum - Long-running AI agent loop
-# Usage: ralph [--tool amp|claude|gemini|codex] [max_iterations]
+# Usage: ralph [--tool amp|claude|codex|agy|cursor|opencode] [max_iterations]
 
 set -euo pipefail
 
 print_usage() {
   cat <<'EOF'
-Usage: ralph [--tool claude|codex|agy|cursor|opencode|amp|gemini] [--model MODEL]
+Usage: ralph [--tool claude|codex|agy|cursor|opencode|amp] [--model MODEL]
              [--effort low|medium|high|xhigh|max] [max_iterations]
 
 Options:
   --tool TOOL        Agent to run. Supported: claude, codex, agy, cursor,
-                     opencode, amp, gemini
+                     opencode, amp
   --tool=TOOL        Same as above
   --claude           Shortcut for --tool claude
   --codex            Shortcut for --tool codex
@@ -19,7 +19,6 @@ Options:
   --cursor           Shortcut for --tool cursor    (cursor-agent)
   --opencode         Shortcut for --tool opencode
   --amp              Shortcut for --tool amp
-  --gemini           Shortcut for --tool gemini    (superseded by agy)
   --model MODEL      Model to run, by hand. Defaults to the tool's own configured
                      model. Soft-checked against what the tool advertises.
   --model=MODEL      Same as above
@@ -49,7 +48,7 @@ Environment:
                      prompt and the installed one.
 
 Prompts:
-  The driver prompt is named after the tool (CLAUDE.md, GEMINI.md, ...), which
+  The driver prompt is named after the tool (CLAUDE.md, CODEX.md, ...), which
   is also what those tools call a project's own rules file. A project-local file
   is used only when it carries Ralph's stop signal — a customized copy of a
   shipped prompt does, a rules file does not. Otherwise the installed prompt is
@@ -245,7 +244,7 @@ resolve_git_identity_from_history() {
   fi
 }
 
-SUPPORTED_TOOLS="amp claude codex agy cursor opencode gemini"
+SUPPORTED_TOOLS="amp claude codex agy cursor opencode"
 
 # opencode installs to ~/.opencode/bin and does not always land on PATH.
 resolve_opencode_bin() {
@@ -325,10 +324,6 @@ tool_configured_model() {
       [[ -f "$HOME/.codex/config.toml" ]] || return 0
       sed -n 's/^[[:space:]]*model[[:space:]]*=[[:space:]]*"\([^"]*\)".*/\1/p' \
         "$HOME/.codex/config.toml" 2>/dev/null | head -n 1
-      ;;
-    gemini)
-      [[ -f "$HOME/.gemini/settings.json" ]] || return 0
-      jq -r '.model // .model.name // empty' "$HOME/.gemini/settings.json" 2>/dev/null || true
       ;;
   esac
 }
@@ -485,10 +480,6 @@ while [[ $# -gt 0 ]]; do
       TOOL="amp"
       shift
       ;;
-    --gemini)
-      TOOL="gemini"
-      shift
-      ;;
     --codex)
       TOOL="codex"
       shift
@@ -640,11 +631,6 @@ if [[ "$TOOL" == "amp" ]] && ! command -v amp >/dev/null 2>&1; then
   exit 1
 fi
 
-if [[ "$TOOL" == "gemini" ]] && ! command -v gemini >/dev/null 2>&1; then
-  echo "Error: gemini is required but was not found in PATH."
-  exit 1
-fi
-
 if [[ "$TOOL" == "codex" ]] && ! command -v codex >/dev/null 2>&1; then
   echo "Error: codex is required but was not found in PATH."
   exit 1
@@ -718,7 +704,6 @@ fi
 
 AMP_PROMPT_FILE_NAME="AMP.md"
 CLAUDE_PROMPT_FILE_NAME="CLAUDE.md"
-GEMINI_PROMPT_FILE_NAME="GEMINI.md"
 CODEX_PROMPT_FILE_NAME="CODEX.md"
 AGY_PROMPT_FILE_NAME="AGY.md"
 CURSOR_PROMPT_FILE_NAME="CURSOR.md"
@@ -726,7 +711,6 @@ OPENCODE_PROMPT_FILE_NAME="OPENCODE.md"
 
 case "$TOOL" in
   claude)   PROMPT_FILE_NAME="$CLAUDE_PROMPT_FILE_NAME" ;;
-  gemini)   PROMPT_FILE_NAME="$GEMINI_PROMPT_FILE_NAME" ;;
   codex)    PROMPT_FILE_NAME="$CODEX_PROMPT_FILE_NAME" ;;
   amp)      PROMPT_FILE_NAME="$AMP_PROMPT_FILE_NAME" ;;
   agy)      PROMPT_FILE_NAME="$AGY_PROMPT_FILE_NAME" ;;
@@ -736,7 +720,7 @@ esac
 
 # Resolve the driver prompt.
 #
-# Every prompt file is named after its tool — CLAUDE.md, GEMINI.md, CURSOR.md —
+# Every prompt file is named after its tool — CLAUDE.md, CURSOR.md, CODEX.md —
 # and that is the same name those tools already use for a project's own rules
 # file. A repo that ships a CLAUDE.md is publishing rules for the agent, not a
 # Ralph driver, and the agent loads that file by itself. Handing it to the loop
@@ -912,13 +896,6 @@ for i in $(seq 1 $MAX_ITERATIONS); do
     [[ -n "$MODEL" ]] && OPENCODE_ARGS+=(--model "$MODEL")
     [[ "$EFFORT_EXPLICIT" -eq 1 ]] && OPENCODE_ARGS+=(--variant "$EFFORT")
     OUTPUT=$("$OPENCODE_BIN" "${OPENCODE_ARGS[@]}" "$(<"$PROMPT_FILE")" 2>&1 | tee "$TEE_TARGET") || true
-  elif [[ "$TOOL" == "gemini" ]]; then
-    # Gemini CLI has no effort knob; --approval-mode yolo is the current spelling
-    # of the old -y/--yolo flag. Superseded by agy (Antigravity) — kept for
-    # anyone still on gemini-cli.
-    GEMINI_ARGS=(--approval-mode yolo)
-    [[ -n "$MODEL" ]] && GEMINI_ARGS+=(--model "$MODEL")
-    OUTPUT=$(gemini "${GEMINI_ARGS[@]}" --prompt "$(<"$PROMPT_FILE")" 2>&1 | tee "$TEE_TARGET") || true
   else
     # Codex has no --effort flag: reasoning effort is a config key, overridden
     # per-run with -c. Only sent when the user asked for one, so the value in
