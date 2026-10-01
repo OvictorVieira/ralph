@@ -11,3 +11,6 @@ progress.txt
 
 #Claude
 .claude/
+
+# Git worktrees (local parallel work trees, never pushed)
+.worktrees/
