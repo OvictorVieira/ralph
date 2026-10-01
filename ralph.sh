@@ -888,11 +888,16 @@ for i in $(seq 1 $MAX_ITERATIONS); do
     [[ -n "$MODEL" ]] && CLAUDE_ARGS+=(--model "$MODEL")
     OUTPUT=$(claude "${CLAUDE_ARGS[@]}" < "$PROMPT_FILE" 2>&1 | tee "$TEE_TARGET") || true
   elif [[ "$TOOL" == "agy" ]]; then
-    # Antigravity: same shape as claude — --print reads the prompt from stdin.
-    AGY_ARGS=(--print --dangerously-skip-permissions)
+    # Antigravity: --print takes the prompt as its own value (space- or
+    # `=`-attached) — it does not read stdin. Piping the prompt via
+    # `< "$PROMPT_FILE"` (the old shape here) makes a bare `--print` consume
+    # the next flag's name as the prompt instead, so the real driver prompt
+    # is never read and the run fails on every iteration without doing any
+    # work. Confirmed against the installed agy CLI (1.2.14).
+    AGY_ARGS=(--print "$(<"$PROMPT_FILE")" --dangerously-skip-permissions)
     [[ -n "$MODEL" ]] && AGY_ARGS+=(--model "$MODEL")
     [[ "$EFFORT_EXPLICIT" -eq 1 ]] && AGY_ARGS+=(--effort "$EFFORT")
-    OUTPUT=$(agy "${AGY_ARGS[@]}" < "$PROMPT_FILE" 2>&1 | tee "$TEE_TARGET") || true
+    OUTPUT=$(agy "${AGY_ARGS[@]}" 2>&1 | tee "$TEE_TARGET") || true
   elif [[ "$TOOL" == "cursor" ]]; then
     # cursor-agent takes the prompt as a positional argument, and carries effort
     # inside the model string rather than as its own flag.
@@ -918,10 +923,30 @@ for i in $(seq 1 $MAX_ITERATIONS); do
     # Codex has no --effort flag: reasoning effort is a config key, overridden
     # per-run with -c. Only sent when the user asked for one, so the value in
     # ~/.codex/config.toml stays authoritative otherwise.
-    CODEX_ARGS=(exec --dangerously-bypass-approvals-and-sandbox -C "$PROJECT_ROOT")
+    #
+    # `codex exec` echoes the entire input prompt back into stdout as part of
+    # its own transcript before any assistant turn runs. Every Ralph driver
+    # prompt documents the stop sentinel as literal text (it explains when to
+    # emit it), so that echo always contains `<promise>COMPLETE</promise>` —
+    # grepping the raw stream reports completion on iteration 1 regardless of
+    # whether any real work happened. `-o` writes ONLY the agent's actual
+    # final message to a file; the completion check below reads that instead
+    # of $OUTPUT for this tool.
+    CODEX_LAST_MSG_FILE="$(mktemp)"
+    CODEX_ARGS=(exec --dangerously-bypass-approvals-and-sandbox -C "$PROJECT_ROOT" -o "$CODEX_LAST_MSG_FILE")
     [[ -n "$MODEL" ]] && CODEX_ARGS+=(--model "$MODEL")
     [[ "$EFFORT_EXPLICIT" -eq 1 ]] && CODEX_ARGS+=(-c "model_reasoning_effort=\"$EFFORT\"")
     OUTPUT=$(codex "${CODEX_ARGS[@]}" - < "$PROMPT_FILE" 2>&1 | tee "$TEE_TARGET") || true
+  fi
+
+  # The completion check below must grep the agent's actual final turn, not
+  # necessarily the full captured stream. codex is the one tool whose stream
+  # always contains the sentinel from its own prompt echo (see above) — its
+  # real answer lives in the file `-o` wrote, not in $OUTPUT.
+  COMPLETION_CHECK_TEXT="$OUTPUT"
+  if [[ "$TOOL" == "codex" ]]; then
+    COMPLETION_CHECK_TEXT="$(cat "$CODEX_LAST_MSG_FILE" 2>/dev/null || true)"
+    rm -f "$CODEX_LAST_MSG_FILE"
   fi
   
   ITER_ELAPSED=$((SECONDS - ITER_START))
@@ -984,7 +1009,7 @@ for i in $(seq 1 $MAX_ITERATIONS); do
   fi
 
   # Check for completion signal
-  if echo "$OUTPUT" | grep -q "<promise>COMPLETE</promise>"; then
+  if echo "$COMPLETION_CHECK_TEXT" | grep -q "<promise>COMPLETE</promise>"; then
     echo ""
     echo "Ralph completed all tasks!"
     echo "Completed at iteration $i of $MAX_ITERATIONS"
