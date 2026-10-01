@@ -1,0 +1,55 @@
+{
+  "schemaVersion": 1,
+  "providers": {
+    "claude": {
+      "cliBinary": "claude",
+      "effortMechanism": "--effort flag (session-level; valid values: low, medium, high, xhigh, max)",
+      "models": {
+        "claude-fable-5-1": {
+          "label": "Claude Fable 5.1",
+          "status": "active",
+          "efforts": ["low", "medium", "high", "xhigh", "max"],
+          "defaultEffort": null,
+          "aliases": ["fable", "claude-fable-5"],
+          "successor": null,
+          "minCliVersion": null,
+          "source": "claude --help (CLI 2.1.258) advertises alias 'fable' and the full-name form 'claude-fable-5'; dated id confirmed from Claude Code model listing current at 2026-01",
+          "notes": "Latest in the Fable family. The 'claude-fable-5' alias in CLI --help resolves to this dated id."
+        },
+        "claude-opus-5": {
+          "label": "Claude Opus 5",
+          "status": "active",
+          "efforts": ["low", "medium", "high", "xhigh", "max"],
+          "defaultEffort": null,
+          "aliases": ["opus"],
+          "successor": null,
+          "minCliVersion": null,
+          "source": "claude --help (CLI 2.1.258) advertises alias 'opus'; dated id confirmed from Claude Code model listing current at 2026-01",
+          "notes": "Reasoning model; supports --effort session flag and Claude Code fast mode."
+        },
+        "claude-sonnet-5": {
+          "label": "Claude Sonnet 5",
+          "status": "active",
+          "efforts": ["low", "medium", "high", "xhigh", "max"],
+          "defaultEffort": null,
+          "aliases": ["sonnet"],
+          "successor": null,
+          "minCliVersion": null,
+          "source": "claude --help (CLI 2.1.258) advertises alias 'sonnet'; dated id confirmed from Claude Code model listing current at 2026-01",
+          "notes": "Reasoning model; supports --effort session flag."
+        },
+        "claude-haiku-4-5-20251001": {
+          "label": "Claude Haiku 4.5",
+          "status": "active",
+          "efforts": ["low", "medium", "high", "xhigh", "max"],
+          "defaultEffort": null,
+          "aliases": ["haiku"],
+          "successor": null,
+          "minCliVersion": null,
+          "source": "Dated id confirmed from Claude Code model listing current at 2026-01; --effort flag is session-level in Claude Code and applies to this model",
+          "notes": "Fast, low-cost model in the Haiku 4.x line."
+        }
+      }
+    }
+  }
+}
