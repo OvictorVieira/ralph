@@ -50,6 +50,133 @@
           "notes": "Fast, low-cost model in the Haiku 4.x line."
         }
       }
+    },
+    "codex": {
+      "cliBinary": "codex",
+      "effortMechanism": "-c model_reasoning_effort=\"<value>\" TOML config override (Codex CLI forwards verbatim; valid values enumerated by the CLI binary: minimal, low, medium, high, xhigh)",
+      "models": {
+        "gpt-6-astra": {
+          "label": "GPT-6 Astra",
+          "status": "active",
+          "efforts": ["minimal", "low", "medium", "high", "xhigh"],
+          "defaultEffort": null,
+          "aliases": [],
+          "successor": null,
+          "minCliVersion": null,
+          "source": "codex-cli 0.154.0 binary strings include the model id 'gpt-6-astra', the display label 'GPT-6-Astra', and prose stating 'GPT-6 Astra is our most intelligent model yet'",
+          "notes": "Current flagship. Codex CLI forwards -c model_reasoning_effort verbatim; the API gates which values a given model honors."
+        },
+        "gpt-5.6-sol": {
+          "label": "GPT-5.6 Sol",
+          "status": "active",
+          "efforts": ["minimal", "low", "medium", "high", "xhigh"],
+          "defaultEffort": null,
+          "aliases": [],
+          "successor": null,
+          "minCliVersion": null,
+          "source": "codex-cli 0.154.0 binary strings include 'gpt-5.6-sol' and the display label 'Sol'",
+          "notes": "5.6 family. Current production default in Codex (installed-config evidence)."
+        },
+        "gpt-5.6-luna": {
+          "label": "GPT-5.6 Luna",
+          "status": "active",
+          "efforts": ["minimal", "low", "medium", "high", "xhigh"],
+          "defaultEffort": null,
+          "aliases": [],
+          "successor": null,
+          "minCliVersion": null,
+          "source": "codex-cli 0.154.0 binary strings include 'gpt-5.6-luna' and the display label 'Luna'",
+          "notes": "5.6 family."
+        },
+        "gpt-5.6-terra": {
+          "label": "GPT-5.6 Terra",
+          "status": "active",
+          "efforts": ["minimal", "low", "medium", "high", "xhigh"],
+          "defaultEffort": null,
+          "aliases": [],
+          "successor": null,
+          "minCliVersion": null,
+          "source": "codex-cli 0.154.0 binary strings include 'gpt-5.6-terra' and the display label 'Terra'",
+          "notes": "5.6 family."
+        },
+        "gpt-daybreak-blue-latest": {
+          "label": "GPT Daybreak Blue (latest)",
+          "status": "preview",
+          "efforts": ["minimal", "low", "medium", "high", "xhigh"],
+          "defaultEffort": null,
+          "aliases": [],
+          "successor": null,
+          "minCliVersion": null,
+          "source": "codex-cli 0.154.0 binary strings include 'gpt-daybreak-blue-latest'; the '-latest' rolling tag is OpenAI's convention for preview tracks",
+          "notes": "Preview/experimental track; rolling tag means the underlying model may change without notice."
+        },
+        "gpt-daybreak-red-latest": {
+          "label": "GPT Daybreak Red (latest)",
+          "status": "preview",
+          "efforts": ["minimal", "low", "medium", "high", "xhigh"],
+          "defaultEffort": null,
+          "aliases": [],
+          "successor": null,
+          "minCliVersion": null,
+          "source": "codex-cli 0.154.0 binary strings include 'gpt-daybreak-red-latest'",
+          "notes": "Preview/experimental track; rolling tag."
+        },
+        "gpt-5.5": {
+          "label": "GPT-5.5",
+          "status": "superseded",
+          "efforts": ["minimal", "low", "medium", "high", "xhigh"],
+          "defaultEffort": null,
+          "aliases": [],
+          "successor": "gpt-5.6-sol",
+          "minCliVersion": null,
+          "source": "codex-cli 0.154.0 binary strings include 'gpt-5.5' alongside the newer 5.6 family; prior-generation entry in the GPT-5.x line",
+          "notes": "Superseded by the 5.6 family."
+        },
+        "gpt-5.4": {
+          "label": "GPT-5.4",
+          "status": "superseded",
+          "efforts": ["minimal", "low", "medium", "high", "xhigh"],
+          "defaultEffort": null,
+          "aliases": [],
+          "successor": "gpt-5.6-sol",
+          "minCliVersion": null,
+          "source": "codex-cli 0.154.0 binary strings include 'gpt-5.4' alongside newer 5.5/5.6 entries",
+          "notes": "Superseded."
+        },
+        "gpt-5.4-mini": {
+          "label": "GPT-5.4 Mini",
+          "status": "superseded",
+          "efforts": ["minimal", "low", "medium", "high", "xhigh"],
+          "defaultEffort": null,
+          "aliases": [],
+          "successor": "gpt-5.6-sol",
+          "minCliVersion": null,
+          "source": "codex-cli 0.154.0 binary strings include 'gpt-5.4-mini' alongside newer 5.5/5.6 entries",
+          "notes": "Superseded; smaller/cheaper variant of 5.4."
+        },
+        "gpt-5.3-codex": {
+          "label": "GPT-5.3 Codex",
+          "status": "superseded",
+          "efforts": ["minimal", "low", "medium", "high", "xhigh"],
+          "defaultEffort": null,
+          "aliases": [],
+          "successor": "gpt-6-astra",
+          "minCliVersion": null,
+          "source": "codex-cli 0.154.0 binary strings include 'gpt-5.3-codex'; the binary also carries a 'hide_gpt-5.1-codex-max_migration_prompt' flag confirming the codex-tuned line has been migrated forward",
+          "notes": "Codex-tuned variant from the 5.x line; superseded by gpt-6-astra."
+        },
+        "gpt-5.2": {
+          "label": "GPT-5.2",
+          "status": "superseded",
+          "efforts": ["minimal", "low", "medium", "high", "xhigh"],
+          "defaultEffort": null,
+          "aliases": [],
+          "successor": "gpt-5.6-sol",
+          "minCliVersion": null,
+          "source": "codex-cli 0.154.0 binary strings include 'gpt-5.2' alongside newer 5.x and 6.x entries",
+          "notes": "Oldest GPT-5.x entry still enumerated by the installed Codex CLI."
+        }
+      }
     }
   }
 }
