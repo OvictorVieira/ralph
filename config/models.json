@@ -177,6 +177,210 @@
           "notes": "Oldest GPT-5.x entry still enumerated by the installed Codex CLI."
         }
       }
+    },
+    "agy": {
+      "cliBinary": "agy",
+      "effortMechanism": "--effort flag (session-level; valid values: low, medium, high, max)",
+      "models": {
+        "gemini-3.8-flash": {
+          "label": "Gemini 3.8 Flash",
+          "status": "active",
+          "efforts": ["low", "medium", "high"],
+          "defaultEffort": null,
+          "aliases": [],
+          "successor": null,
+          "minCliVersion": null,
+          "source": "agy CLI 1.2.14 accepts --model gemini-3.8-flash when combined with --effort (available: low, medium, high)",
+          "notes": "Base model identifier; requires explicit --effort (low, medium, high) in the CLI or resolves to a tiered slug."
+        },
+        "gemini-3.8-flash-high": {
+          "label": "Gemini 3.8 Flash (High)",
+          "status": "active",
+          "efforts": ["high"],
+          "defaultEffort": "high",
+          "aliases": [],
+          "successor": null,
+          "minCliVersion": null,
+          "source": "agy models (CLI 1.2.14) lists 'gemini-3.8-flash-high' with label 'Gemini 3.8 Flash (High)'",
+          "notes": "Gemini 3.8 Flash with high reasoning effort preset."
+        },
+        "gemini-3.8-flash-medium": {
+          "label": "Gemini 3.8 Flash (Medium)",
+          "status": "active",
+          "efforts": ["medium"],
+          "defaultEffort": "medium",
+          "aliases": [],
+          "successor": null,
+          "minCliVersion": null,
+          "source": "agy models (CLI 1.2.14) lists 'gemini-3.8-flash-medium' with label 'Gemini 3.8 Flash (Medium)'",
+          "notes": "Gemini 3.8 Flash with medium reasoning effort preset."
+        },
+        "gemini-3.8-flash-low": {
+          "label": "Gemini 3.8 Flash (Low)",
+          "status": "active",
+          "efforts": ["low"],
+          "defaultEffort": "low",
+          "aliases": [],
+          "successor": null,
+          "minCliVersion": null,
+          "source": "agy models (CLI 1.2.14) lists 'gemini-3.8-flash-low' with label 'Gemini 3.8 Flash (Low)'",
+          "notes": "Gemini 3.8 Flash with low reasoning effort preset."
+        },
+        "gemini-3.7-flash": {
+          "label": "Gemini 3.7 Flash",
+          "status": "superseded",
+          "efforts": ["low", "medium", "high"],
+          "defaultEffort": null,
+          "aliases": [],
+          "successor": "gemini-3.8-flash",
+          "minCliVersion": null,
+          "source": "agy CLI 1.2.14 accepts --model gemini-3.7-flash with --effort (low, medium, high); superseded by 3.8",
+          "notes": "Prior-generation Flash model; superseded by gemini-3.8-flash."
+        },
+        "gemini-3.7-flash-high": {
+          "label": "Gemini 3.7 Flash (High)",
+          "status": "superseded",
+          "efforts": ["high"],
+          "defaultEffort": "high",
+          "aliases": [],
+          "successor": "gemini-3.8-flash-high",
+          "minCliVersion": null,
+          "source": "agy models (CLI 1.2.14) lists 'gemini-3.7-flash-high' with label 'Gemini 3.7 Flash (High)'",
+          "notes": "Prior-generation Flash model with high effort; superseded by gemini-3.8-flash-high."
+        },
+        "gemini-3.7-flash-medium": {
+          "label": "Gemini 3.7 Flash (Medium)",
+          "status": "superseded",
+          "efforts": ["medium"],
+          "defaultEffort": "medium",
+          "aliases": [],
+          "successor": "gemini-3.8-flash-medium",
+          "minCliVersion": null,
+          "source": "agy models (CLI 1.2.14) lists 'gemini-3.7-flash-medium' with label 'Gemini 3.7 Flash (Medium)'",
+          "notes": "Prior-generation Flash model with medium effort; superseded by gemini-3.8-flash-medium."
+        },
+        "gemini-3.7-flash-low": {
+          "label": "Gemini 3.7 Flash (Low)",
+          "status": "superseded",
+          "efforts": ["low"],
+          "defaultEffort": "low",
+          "aliases": [],
+          "successor": "gemini-3.8-flash-low",
+          "minCliVersion": null,
+          "source": "agy models (CLI 1.2.14) lists 'gemini-3.7-flash-low' with label 'Gemini 3.7 Flash (Low)'",
+          "notes": "Prior-generation Flash model with low effort; superseded by gemini-3.8-flash-low."
+        },
+        "gemini-3.6-flash": {
+          "label": "Gemini 3.6 Flash",
+          "status": "superseded",
+          "efforts": ["low", "medium", "high"],
+          "defaultEffort": null,
+          "aliases": [],
+          "successor": "gemini-3.8-flash",
+          "minCliVersion": null,
+          "source": "agy CLI 1.2.14 accepts --model gemini-3.6-flash with --effort (low, medium, high); superseded by 3.8",
+          "notes": "Prior-generation Flash model; superseded by gemini-3.8-flash."
+        },
+        "gemini-3.6-flash-high": {
+          "label": "Gemini 3.6 Flash (High)",
+          "status": "superseded",
+          "efforts": ["high"],
+          "defaultEffort": "high",
+          "aliases": [],
+          "successor": "gemini-3.8-flash-high",
+          "minCliVersion": null,
+          "source": "agy models (CLI 1.2.14) lists 'gemini-3.6-flash-high' with label 'Gemini 3.6 Flash (High)'",
+          "notes": "Prior-generation Flash model with high effort; superseded by gemini-3.8-flash-high."
+        },
+        "gemini-3.6-flash-medium": {
+          "label": "Gemini 3.6 Flash (Medium)",
+          "status": "superseded",
+          "efforts": ["medium"],
+          "defaultEffort": "medium",
+          "aliases": [],
+          "successor": "gemini-3.8-flash-medium",
+          "minCliVersion": null,
+          "source": "agy models (CLI 1.2.14) lists 'gemini-3.6-flash-medium' with label 'Gemini 3.6 Flash (Medium)'",
+          "notes": "Prior-generation Flash model with medium effort; superseded by gemini-3.8-flash-medium."
+        },
+        "gemini-3.6-flash-low": {
+          "label": "Gemini 3.6 Flash (Low)",
+          "status": "superseded",
+          "efforts": ["low"],
+          "defaultEffort": "low",
+          "aliases": [],
+          "successor": "gemini-3.8-flash-low",
+          "minCliVersion": null,
+          "source": "agy models (CLI 1.2.14) lists 'gemini-3.6-flash-low' with label 'Gemini 3.6 Flash (Low)'",
+          "notes": "Prior-generation Flash model with low effort; superseded by gemini-3.8-flash-low."
+        },
+        "gemini-3.1-pro": {
+          "label": "Gemini 3.1 Pro",
+          "status": "active",
+          "efforts": ["low", "high"],
+          "defaultEffort": null,
+          "aliases": [],
+          "successor": null,
+          "minCliVersion": null,
+          "source": "agy CLI 1.2.14 accepts --model gemini-3.1-pro with --effort (available: low, high; medium not supported)",
+          "notes": "Pro reasoning model; only low and high efforts are supported."
+        },
+        "gemini-3.1-pro-high": {
+          "label": "Gemini 3.1 Pro (High)",
+          "status": "active",
+          "efforts": ["high"],
+          "defaultEffort": "high",
+          "aliases": [],
+          "successor": null,
+          "minCliVersion": null,
+          "source": "agy models (CLI 1.2.14) lists 'gemini-3.1-pro-high' with label 'Gemini 3.1 Pro (High)'",
+          "notes": "Gemini 3.1 Pro with high effort preset."
+        },
+        "gemini-3.1-pro-low": {
+          "label": "Gemini 3.1 Pro (Low)",
+          "status": "active",
+          "efforts": ["low"],
+          "defaultEffort": "low",
+          "aliases": [],
+          "successor": null,
+          "minCliVersion": null,
+          "source": "agy models (CLI 1.2.14) lists 'gemini-3.1-pro-low' with label 'Gemini 3.1 Pro (Low)'",
+          "notes": "Gemini 3.1 Pro with low effort preset."
+        },
+        "claude-sonnet-4-6": {
+          "label": "Claude Sonnet 4.6 (Thinking)",
+          "status": "active",
+          "efforts": [],
+          "defaultEffort": null,
+          "aliases": [],
+          "successor": null,
+          "minCliVersion": null,
+          "source": "agy models (CLI 1.2.14) lists 'claude-sonnet-4-6'; CLI reports --effort is not supported for this model",
+          "notes": "Anthropic model hosted in AGY; effort override is not supported."
+        },
+        "claude-opus-4-6-thinking": {
+          "label": "Claude Opus 4.6 (Thinking)",
+          "status": "active",
+          "efforts": [],
+          "defaultEffort": null,
+          "aliases": [],
+          "successor": null,
+          "minCliVersion": null,
+          "source": "agy models (CLI 1.2.14) lists 'claude-opus-4-6-thinking'; CLI reports --effort is not supported for this model",
+          "notes": "Anthropic model hosted in AGY; effort override is not supported."
+        },
+        "gpt-oss-120b-medium": {
+          "label": "GPT-OSS 120B (Medium)",
+          "status": "active",
+          "efforts": ["medium"],
+          "defaultEffort": "medium",
+          "aliases": ["gpt-oss-120b"],
+          "successor": null,
+          "minCliVersion": null,
+          "source": "agy models (CLI 1.2.14) lists 'gpt-oss-120b-medium'; CLI reports only medium effort is available",
+          "notes": "Open-weight model hosted in AGY; accepts alias 'gpt-oss-120b' and fixed at medium effort."
+        }
+      }
     }
   }
 }

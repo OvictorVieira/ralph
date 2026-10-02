@@ -63,8 +63,8 @@ status/effort validation; runtime discovery (parsing `--help` output or
 inspecting user config) complements it.
 
 For `agy`, runtime discovery via the installed `agy` CLI is the primary
-authority — the catalog entries here are a documented fallback, not a
-replacement for querying the live tool.
+authority, and catalog entries are explicitly secondary to runtime discovery
+(serving as a documented fallback when discovery is unavailable).
 
 For `cursor`, `opencode` and `amp`, Ralph does not maintain catalog entries;
 behavior remains unchanged and model/effort pass through to the underlying
