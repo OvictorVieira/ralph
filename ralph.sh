@@ -375,6 +375,154 @@ tool_advertised_models() {
   esac
 }
 
+# Catalog vs runtime discovery:
+#
+# config/models.json is Ralph's curated catalog of per-model capability and
+# lifecycle metadata. Runtime discovery (above) remains authoritative for what
+# the local CLI installation advertises; the catalog complements it with
+# metadata CLIs do not surface: lifecycle state (active, preview, superseded,
+# deprecated, retired), per-model effort overrides, and successor pointers.
+#
+# For claude and codex, the catalog is the primary authority for lifecycle and
+# effort bounds. For agy, runtime discovery is primary and the catalog serves
+# as a fallback. Tools without catalog entries (cursor, opencode, amp) bypass
+# catalog checks entirely.
+#
+# All catalog lookup functions handle missing or malformed catalog files
+# gracefully without failing, falling back to empty values (or the raw model
+# identifier in the case of catalog_model_label), so Ralph continues running.
+# shellcheck disable=SC2329
+resolve_catalog_file() {
+  if [[ -n "${RALPH_CATALOG_FILE:-}" ]]; then
+    if [[ -f "$RALPH_CATALOG_FILE" ]]; then
+      printf '%s\n' "$RALPH_CATALOG_FILE"
+      return 0
+    fi
+    return 1
+  fi
+
+  local script_dir="${SCRIPT_DIR:-$(resolve_script_dir)}"
+
+  if [[ -f "$script_dir/config/models.json" ]]; then
+    printf '%s\n' "$script_dir/config/models.json"
+    return 0
+  fi
+
+  if [[ -f "$script_dir/models.json" ]]; then
+    printf '%s\n' "$script_dir/models.json"
+    return 0
+  fi
+
+  local project_root
+  project_root="${PROJECT_ROOT:-$(detect_project_root 2>/dev/null || true)}"
+  if [[ -n "$project_root" && -f "$project_root/config/models.json" ]]; then
+    printf '%s\n' "$project_root/config/models.json"
+    return 0
+  fi
+
+  return 1
+}
+
+# shellcheck disable=SC2329
+catalog_model_status() {
+  local provider="${1:-}" model="${2:-}"
+  [[ -z "$provider" || -z "$model" ]] && return 0
+  command -v jq >/dev/null 2>&1 || return 0
+  local catalog_file
+  catalog_file="$(resolve_catalog_file 2>/dev/null || true)"
+  [[ -n "$catalog_file" && -f "$catalog_file" ]] || return 0
+
+  local res
+  res="$(jq -r --arg p "$provider" --arg m "$model" \
+    'try ((.providers[$p].models // {}) as $models | (($models[$m] // ([ $models[] | select(.aliases[]? == $m) ][0])) // empty) | .status // empty) catch empty' \
+    "$catalog_file" 2>/dev/null || true)"
+  if [[ -n "$res" ]]; then
+    printf '%s\n' "$res"
+  fi
+}
+
+# shellcheck disable=SC2329
+catalog_model_efforts() {
+  local provider="${1:-}" model="${2:-}"
+  [[ -z "$provider" || -z "$model" ]] && return 0
+  command -v jq >/dev/null 2>&1 || return 0
+  local catalog_file
+  catalog_file="$(resolve_catalog_file 2>/dev/null || true)"
+  [[ -n "$catalog_file" && -f "$catalog_file" ]] || return 0
+
+  local res
+  res="$(jq -r --arg p "$provider" --arg m "$model" \
+    'try ((.providers[$p].models // {}) as $models | (($models[$m] // ([ $models[] | select(.aliases[]? == $m) ][0])) // empty) | ((.efforts // []) | join(" ")) | if . == "" then empty else . end) catch empty' \
+    "$catalog_file" 2>/dev/null || true)"
+  if [[ -n "$res" ]]; then
+    printf '%s\n' "$res"
+  fi
+}
+
+# shellcheck disable=SC2329
+catalog_model_default_effort() {
+  local provider="${1:-}" model="${2:-}"
+  [[ -z "$provider" || -z "$model" ]] && return 0
+  command -v jq >/dev/null 2>&1 || return 0
+  local catalog_file
+  catalog_file="$(resolve_catalog_file 2>/dev/null || true)"
+  [[ -n "$catalog_file" && -f "$catalog_file" ]] || return 0
+
+  local res
+  res="$(jq -r --arg p "$provider" --arg m "$model" \
+    'try ((.providers[$p].models // {}) as $models | (($models[$m] // ([ $models[] | select(.aliases[]? == $m) ][0])) // empty) | .defaultEffort // empty) catch empty' \
+    "$catalog_file" 2>/dev/null || true)"
+  if [[ -n "$res" ]]; then
+    printf '%s\n' "$res"
+  fi
+}
+
+# shellcheck disable=SC2329
+catalog_model_successor() {
+  local provider="${1:-}" model="${2:-}"
+  [[ -z "$provider" || -z "$model" ]] && return 0
+  command -v jq >/dev/null 2>&1 || return 0
+  local catalog_file
+  catalog_file="$(resolve_catalog_file 2>/dev/null || true)"
+  [[ -n "$catalog_file" && -f "$catalog_file" ]] || return 0
+
+  local res
+  res="$(jq -r --arg p "$provider" --arg m "$model" \
+    'try ((.providers[$p].models // {}) as $models | (($models[$m] // ([ $models[] | select(.aliases[]? == $m) ][0])) // empty) | .successor // empty) catch empty' \
+    "$catalog_file" 2>/dev/null || true)"
+  if [[ -n "$res" ]]; then
+    printf '%s\n' "$res"
+  fi
+}
+
+# shellcheck disable=SC2329
+catalog_model_label() {
+  local provider="${1:-}" model="${2:-}"
+  if [[ -z "$model" ]]; then
+    return 0
+  fi
+  if [[ -z "$provider" ]] || ! command -v jq >/dev/null 2>&1; then
+    printf '%s\n' "$model"
+    return 0
+  fi
+  local catalog_file
+  catalog_file="$(resolve_catalog_file 2>/dev/null || true)"
+  if [[ -z "$catalog_file" || ! -f "$catalog_file" ]]; then
+    printf '%s\n' "$model"
+    return 0
+  fi
+
+  local res
+  res="$(jq -r --arg p "$provider" --arg m "$model" \
+    'try ((.providers[$p].models // {}) as $models | (($models[$m] // ([ $models[] | select(.aliases[]? == $m) ][0])) // empty) | .label // empty) catch empty' \
+    "$catalog_file" 2>/dev/null || true)"
+  if [[ -n "$res" ]]; then
+    printf '%s\n' "$res"
+  else
+    printf '%s\n' "$model"
+  fi
+}
+
 # Cursor has no --effort flag: effort rides inside the model string as a bracket
 # override. Composing it needs a model to attach to, so --effort without --model
 # has nothing to modify.
