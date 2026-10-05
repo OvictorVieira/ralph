@@ -478,6 +478,24 @@ catalog_model_default_effort() {
 }
 
 # shellcheck disable=SC2329
+catalog_model_min_cli_version() {
+  local provider="${1:-}" model="${2:-}"
+  [[ -z "$provider" || -z "$model" ]] && return 0
+  command -v jq >/dev/null 2>&1 || return 0
+  local catalog_file
+  catalog_file="$(resolve_catalog_file 2>/dev/null || true)"
+  [[ -n "$catalog_file" && -f "$catalog_file" ]] || return 0
+
+  local res
+  res="$(jq -r --arg p "$provider" --arg m "$model" \
+    'try ((.providers[$p].models // {}) as $models | (($models[$m] // ([ $models[] | select(.aliases[]? == $m) ][0])) // empty) | .minCliVersion // empty) catch empty' \
+    "$catalog_file" 2>/dev/null || true)"
+  if [[ -n "$res" ]]; then
+    printf '%s\n' "$res"
+  fi
+}
+
+# shellcheck disable=SC2329
 catalog_model_successor() {
   local provider="${1:-}" model="${2:-}"
   [[ -z "$provider" || -z "$model" ]] && return 0
@@ -642,6 +660,86 @@ validate_model_effort() {
     if [[ -n "$successor" ]]; then
       echo "        Successor: $successor" >&2
     fi
+  fi
+
+  return 0
+}
+
+# Extract and compare dotted numeric CLI versions without relying on GNU
+# `sort -V` (Ralph also runs on macOS). Version detection is deliberately
+# best-effort: if either side cannot be parsed, callers skip the gate rather
+# than risk rejecting a usable CLI.
+extract_numeric_version() {
+  printf '%s\n' "${1:-}" | grep -Eo '[0-9]+([.][0-9]+)+' | head -n 1 || true
+}
+
+version_is_older() {
+  local installed="${1:-}" required="${2:-}"
+  [[ "$installed" =~ ^[0-9]+([.][0-9]+)*$ ]] || return 1
+  [[ "$required" =~ ^[0-9]+([.][0-9]+)*$ ]] || return 1
+
+  local -a installed_parts required_parts
+  local length index installed_part required_part
+  IFS='.' read -r -a installed_parts <<< "$installed"
+  IFS='.' read -r -a required_parts <<< "$required"
+  length="${#installed_parts[@]}"
+  if (( ${#required_parts[@]} > length )); then
+    length="${#required_parts[@]}"
+  fi
+
+  for ((index = 0; index < length; index++)); do
+    installed_part="${installed_parts[index]:-0}"
+    required_part="${required_parts[index]:-0}"
+    if (( 10#$installed_part < 10#$required_part )); then
+      return 0
+    fi
+    if (( 10#$installed_part > 10#$required_part )); then
+      return 1
+    fi
+  done
+
+  return 1
+}
+
+tool_cli_version() {
+  local provider="${1:-}" binary version_output
+  binary="$(tool_binary_path "$provider" 2>/dev/null || true)"
+  [[ -n "$binary" ]] || return 0
+  version_output="$("$binary" --version 2>/dev/null || true)"
+  extract_numeric_version "$version_output"
+}
+
+# Validate capabilities that depend on the locally installed CLI. This runs
+# after binary presence checks and before the iteration loop. Missing version
+# output is not an error; an explicit Claude effort on a CLI whose help does
+# not advertise --effort is, because sending the flag would be guaranteed to
+# fail.
+validate_cli_capabilities() {
+  local provider="${1:-}" model="${2:-}" effort_explicit="${3:-0}"
+
+  if [[ "$provider" == "claude" && "$effort_explicit" == "1" ]]; then
+    if ! claude --help 2>/dev/null \
+      | grep -E -- '(^|[[:space:],])--effort([=[:space:]<]|$)' >/dev/null; then
+      echo "Error: the installed Claude CLI does not advertise --effort support." >&2
+      echo "       Upgrade Claude Code or run without --effort." >&2
+      return 1
+    fi
+  fi
+
+  [[ -n "$model" ]] || return 0
+
+  local minimum_raw minimum installed
+  minimum_raw="$(catalog_model_min_cli_version "$provider" "$model" 2>/dev/null || true)"
+  [[ -n "$minimum_raw" ]] || return 0
+  minimum="$(extract_numeric_version "$minimum_raw")"
+  [[ -n "$minimum" ]] || return 0
+  installed="$(tool_cli_version "$provider")"
+  [[ -n "$installed" ]] || return 0
+
+  if version_is_older "$installed" "$minimum"; then
+    echo "Error: model '$model' requires $provider CLI $minimum or newer." >&2
+    echo "       Installed: $installed" >&2
+    return 1
   fi
 
   return 0
@@ -958,6 +1056,17 @@ if [[ "$TOOL" == "opencode" ]]; then
     exit 1
   }
 fi
+
+# Catalog-backed CLI capability checks apply only to providers represented in
+# config/models.json. They run after binary discovery and before any iteration
+# can invoke the selected provider for work.
+case "$TOOL" in
+  claude|codex|agy)
+    if ! validate_cli_capabilities "$TOOL" "$MODEL_RESOLVED" "$EFFORT_EXPLICIT"; then
+      exit 1
+    fi
+    ;;
+esac
 
 if [[ -z "$PRD_FILE" || ! -f "$PRD_FILE" ]]; then
   echo "Error: Could not find prd.json in project root or tasks/: $PROJECT_ROOT"

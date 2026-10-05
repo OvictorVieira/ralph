@@ -59,4 +59,5 @@ npm run dev
 - Memory persists via git history, `progress.txt`, and `prd.json`
 - Installed Ralph reads `prd.json` and `progress.txt` from the current project root, while its prompt files live in the global install directory
 - Stories should be small enough to complete in one context window
+- CLI minimum-version gates are best-effort: extract dotted numeric versions from `<tool> --version`, compare them in Bash for macOS portability, and skip the gate when the installed version is undetectable
 - Always update AGENTS.md with discovered patterns for future iterations
