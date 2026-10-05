@@ -583,6 +583,70 @@ resolve_effort() {
   printf '%s\t%s\t%s\n' "$effort" "$source" "$display_default"
 }
 
+# validate_model_effort fails fast for catalog-known lifecycle problems BEFORE
+# the iteration loop starts, so a doomed run never burns an iteration. The
+# catalog is advisory for unknown ids (preserves today's behavior: warn and
+# run), authoritative for lifecycle (retired blocks; deprecated/superseded only
+# warn with successor when the catalog records one), and authoritative for
+# effort when the model lists a non-empty effort set AND the user passed
+# --effort explicitly.
+#
+# Prints user-facing messages on stderr and returns non-zero when the caller
+# should abort. Non-fatal lifecycle warnings return zero. Callers gate this on
+# provider: cursor/opencode/amp keep today's behavior unchanged.
+# shellcheck disable=SC2329
+validate_model_effort() {
+  local provider="${1:-}" model="${2:-}" effort="${3:-}" explicit="${4:-0}"
+  [[ -z "$provider" || -z "$model" ]] && return 0
+
+  local status efforts successor label
+  status="$(catalog_model_status "$provider" "$model" 2>/dev/null || true)"
+  if [[ -z "$status" ]]; then
+    echo "Warning: model '$model' is not in Ralph's '$provider' model catalog." >&2
+    echo "         Running it anyway — the provider has the final say." >&2
+    return 0
+  fi
+
+  label="$(catalog_model_label "$provider" "$model" 2>/dev/null || true)"
+  [[ -z "$label" ]] && label="$model"
+  successor="$(catalog_model_successor "$provider" "$model" 2>/dev/null || true)"
+
+  if [[ "$status" == "retired" ]]; then
+    echo "Error: model '$model' ($label) is marked retired in the Ralph catalog." >&2
+    if [[ -n "$successor" ]]; then
+      echo "       Successor: $successor" >&2
+    fi
+    echo "       Run 'ralph --tool $provider --list-models' for alternatives." >&2
+    return 1
+  fi
+
+  efforts="$(catalog_model_efforts "$provider" "$model" 2>/dev/null || true)"
+  if [[ "$explicit" == "1" && -n "$efforts" ]]; then
+    case " $efforts " in
+      *" $effort "*) ;;
+      *)
+        echo "Error: model '$model' does not accept effort '$effort'." >&2
+        echo "       Accepts: $efforts" >&2
+        return 1
+        ;;
+    esac
+  fi
+
+  if [[ "$status" == "deprecated" ]]; then
+    echo "WARNING: model '$model' is DEPRECATED and may stop working without notice." >&2
+    if [[ -n "$successor" ]]; then
+      echo "         Successor: $successor" >&2
+    fi
+  elif [[ "$status" == "superseded" ]]; then
+    echo "Notice: model '$model' is superseded." >&2
+    if [[ -n "$successor" ]]; then
+      echo "        Successor: $successor" >&2
+    fi
+  fi
+
+  return 0
+}
+
 # Cursor has no --effort flag: effort rides inside the model string as a bracket
 # override. Composing it needs a model to attach to, so --effort without --model
 # has nothing to modify.
@@ -765,6 +829,16 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
+SCRIPT_DIR="$(resolve_script_dir)"
+
+# Resolve the selected model for validation without forcing a configured model
+# back onto the provider command line. An explicit --model remains in MODEL;
+# MODEL_RESOLVED may also name the provider's configured default, which lets
+# lifecycle checks protect implicit/default runs while the CLI still owns its
+# native model-selection behavior.
+MODEL_RECORD="$(resolve_model "$TOOL" "$MODEL" 2>/dev/null || true)"
+MODEL_RESOLVED="$(printf '%s' "$MODEL_RECORD" | cut -f1)"
+
 # Validate tool choice
 case " $SUPPORTED_TOOLS " in
   *" $TOOL "*) ;;
@@ -816,7 +890,16 @@ if [[ -n "$MODEL" ]]; then
   fi
 fi
 
-SCRIPT_DIR="$(resolve_script_dir)"
+# Catalog-driven lifecycle/effort validation (US-008). Gated on providers that
+# ship a catalog; cursor/opencode/amp are intentionally left on their legacy
+# soft-check behavior.
+case "$TOOL" in
+  claude|codex|agy)
+    if ! validate_model_effort "$TOOL" "$MODEL_RESOLVED" "$EFFORT" "$EFFORT_EXPLICIT"; then
+      exit 1
+    fi
+    ;;
+esac
 
 # Resolve the effort value Ralph will actually send to the provider CLI.
 # EFFORT_TO_SEND is empty when the user did NOT pass --effort, so no provider
@@ -829,7 +912,7 @@ SCRIPT_DIR="$(resolve_script_dir)"
 # (tab is whitespace by default), which would swallow that empty field and
 # promote the second column into EFFORT_TO_SEND. `cut -f1` keeps the empty
 # field intact, which is the whole point of the contract.
-EFFORT_RECORD="$(resolve_effort "$TOOL" "$MODEL" "$EFFORT" "$EFFORT_EXPLICIT" 2>/dev/null || true)"
+EFFORT_RECORD="$(resolve_effort "$TOOL" "$MODEL_RESOLVED" "$EFFORT" "$EFFORT_EXPLICIT" 2>/dev/null || true)"
 EFFORT_TO_SEND="$(printf '%s' "$EFFORT_RECORD" | cut -f1)"
 
 PROJECT_ROOT="$(detect_project_root)"
