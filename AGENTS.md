@@ -59,6 +59,7 @@ npm run dev
 - Memory persists via git history, `progress.txt`, and `prd.json`
 - Installed Ralph reads `prd.json` and `progress.txt` from the current project root, while its prompt files live in the global install directory
 - Stories should be small enough to complete in one context window
+- Catalog audits may infer additions from official current-model pages, but lifecycle downgrades require explicit upstream deprecation/retirement evidence; local CLI metadata commands must never send prompts
 - AGY structured model discovery uses the root-level form `agy --output-format json models`; AGY writes `--help` to stderr, model ids live at `.command.data.models[].id`, and text discovery remains the fallback because older releases advertised the flag without implementing subcommand output
 - CLI minimum-version gates are best-effort: extract dotted numeric versions from `<tool> --version`, compare them in Bash for macOS portability, and skip the gate when the installed version is undetectable
 - Banner catalog lookups use `MODEL_RESOLVED` so configured defaults are described without forcing `--model`; extra catalog metadata stays limited to claude/codex/agy to preserve legacy provider output
