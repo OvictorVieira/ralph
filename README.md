@@ -189,9 +189,9 @@ Default is 10 iterations. See the tool table below for what each one supports.
 
 | Tool | Binary | Model | Effort |
 |------|--------|-------|--------|
-| `claude` | `claude` | `--model` | `--effort` — low, medium, high, xhigh, max |
-| `codex` | `codex` | `--model` | `model_reasoning_effort` key — minimal, low, medium, high, xhigh |
-| `agy` | `agy` (Antigravity) | `--model` | `--effort` — low, medium, high |
+| `claude` | `claude` | `--model` | Per model via `--effort` |
+| `codex` | `codex` | `--model` | Per model via the `model_reasoning_effort` key |
+| `agy` | `agy` (Antigravity) | `--model` | Per model via `--effort` |
 | `cursor` | `cursor-agent` | `--model` | `model[effort=…]` — needs `--model` |
 | `opencode` | `opencode` | `-m provider/model` | `--variant` |
 | `amp` | `amp` | `--model` | none |
@@ -200,36 +200,54 @@ Default is 10 iterations. See the tool table below for what each one supports.
 
 ### Models
 
-Ralph pins no model. Each tool runs whatever it is already configured with, so a
-new model is available the day the vendor ships it, without a Ralph release.
+Ralph does not force a model when `--model` is omitted. Each tool uses its own
+configured or provider default.
 
 ```bash
-ralph --list-models                                        # everything below, per tool
+ralph --list-models                         # every supported tool
+ralph --tool codex --list-models            # Codex only
 ralph --claude --model sonnet
 ralph --codex  --model gpt-5.6-sol
 ralph --opencode --model opencode/deepseek-v4-flash-free
 ```
 
-`--list-models` asks the installed CLIs — `opencode models`, `agy models`,
-`cursor-agent --list-models`, the aliases in `claude --help`, the `model` key in
-`~/.codex/config.toml` — rather than printing a table baked into Ralph that would
-go stale. Where a CLI exposes no list, or needs a sign-in it does not have, it
-says so instead of guessing.
+For Claude, Codex, and AGY, `config/models.json` is Ralph's curated catalog. It
+records lifecycle status, per-model effort support, aliases, and replacements.
+Runtime discovery asks the installed CLI what is available on the current
+machine. `--list-models` shows the catalog table plus any `Runtime discovered:`
+models missing from the catalog and any `Catalog only:` models not reported by
+the CLI.
+
+For Claude and Codex, the catalog wins for lifecycle and effort validation;
+runtime discovery adds local availability information. For AGY, the installed
+CLI's runtime model list wins and the catalog is the fallback. Cursor, OpenCode,
+and Amp have no curated catalog, so their existing runtime/pass-through behavior
+is unchanged.
+
+Catalog lifecycle statuses behave as follows:
+
+- `active`: runs normally.
+- `preview`: runs normally and is identified as preview in model listings.
+- `superseded`: runs with a notice and names its successor when known.
+- `deprecated`: runs with a stronger warning and names its successor when known.
+- `retired`: fails before the iteration loop and points to `--list-models`.
 
 `--model` is passed to the tool as given. When the tool can enumerate its models
-and yours is not among them, Ralph warns and runs it anyway: a full model id is
-frequently valid without being advertised.
+and yours is not among them, or when a model is unknown to the catalog, Ralph
+warns and runs it anyway. Custom, manual, and newly released model IDs remain
+supported rather than being hard-blocked.
 
 ### Effort
 
-One vocabulary — `low`, `medium`, `high`, `xhigh`, `max` — translated per tool,
-because no two of these CLIs spell it the same way or even use the same
-mechanism. A level the chosen tool does not accept is an error, not a silent
-downgrade:
+Effort support is validated per model for Claude, Codex, and AGY rather than as
+one provider-wide range. Ralph translates the requested value into each CLI's
+mechanism and fails before starting when a cataloged model does not support it.
+Most importantly, Ralph sends no effort override unless you explicitly pass
+`--effort`; otherwise the selected model keeps its native provider default.
 
 ```bash
 ralph --claude --effort xhigh 8
-ralph --codex  --effort high 8
+ralph --tool codex --model gpt-5.6-sol --effort high 6
 ralph --agy    --effort high 8
 ralph --cursor --model sonnet-4-thinking --effort high 8   # effort rides in the model string
 ralph --opencode --model opencode/big-pickle --effort high 8
@@ -239,10 +257,17 @@ ralph --agy --effort xhigh
 #        Accepts: low medium high  (via --effort flag)
 ```
 
-Every range above came from the CLI itself — `claude --effort bogus` names its
-valid values, `agy --help` documents its own, `cursor-agent --help` shows the
-bracket-override form. Amp has no such knob at all, so `--effort` there is
-rejected rather than dropped.
+Run `ralph --tool <tool> --list-models` to see the supported efforts for each
+cataloged model. Amp has no effort knob, so `--effort` there is rejected rather
+than dropped.
+
+### Model catalog audit
+
+The scheduled `model-catalog-audit` GitHub Actions workflow checks official
+provider sources and metadata-only CLI discovery without making inference
+calls. It compares those results with `config/models.json`, publishes a report
+artifact and job summary, and creates or updates one GitHub issue per finding.
+Critical findings fail the workflow after the report and issue are published.
 
 ### Tests
 
@@ -289,6 +314,8 @@ Ralph will:
 | `OPENCODE.md` | Prompt template for OpenCode |
 | `CLAUDE.md` | Prompt template for Claude Code |
 | `CODEX.md` | Prompt template for Codex CLI |
+| `config/models.json` | Curated model lifecycle and per-model effort catalog |
+| `config/README.md` | Catalog schema and contribution guidance |
 | `prd.json` | User stories with `passes` status (the task list) |
 | `prd.json.example` | Example PRD format for reference |
 | `progress.txt` | Append-only learnings for future iterations |
