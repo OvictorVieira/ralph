@@ -59,5 +59,6 @@ npm run dev
 - Memory persists via git history, `progress.txt`, and `prd.json`
 - Installed Ralph reads `prd.json` and `progress.txt` from the current project root, while its prompt files live in the global install directory
 - Stories should be small enough to complete in one context window
+- AGY structured model discovery uses the root-level form `agy --output-format json models`; AGY writes `--help` to stderr, model ids live at `.command.data.models[].id`, and text discovery remains the fallback because older releases advertised the flag without implementing subcommand output
 - CLI minimum-version gates are best-effort: extract dotted numeric versions from `<tool> --version`, compare them in Bash for macOS portability, and skip the gate when the installed version is undetectable
 - Always update AGENTS.md with discovered patterns for future iterations

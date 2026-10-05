@@ -311,10 +311,10 @@ tool_effort_mechanism() {
 }
 
 # Model discovery is per-tool because no two of these CLIs expose it the same
-# way, and none of them offers a machine-readable list. Rather than hardcode a
-# table that rots the moment a vendor ships a model, ask each CLI what it knows
-# and say plainly where the answer came from — including when the answer is
-# "it does not tell us".
+# way. Prefer structured output when a CLI advertises it; otherwise parse the
+# stable text surface rather than hardcoding a table that rots when a vendor
+# ships a model. Say plainly where the answer came from — including when the
+# answer is "it does not tell us".
 tool_configured_model() {
   case "$1" in
     claude)
@@ -349,6 +349,28 @@ tool_advertised_models() {
       ;;
     agy)
       command -v agy >/dev/null 2>&1 || return 0
+
+      # AGY exposes structured model data through the root-level output flag:
+      # `agy --output-format json models`. Some older releases advertised the
+      # flag without implementing it for subcommands, so fall back unless the
+      # command also returns parseable model ids.
+      local agy_help structured_models
+      # AGY writes help to stderr, unlike most of the provider CLIs.
+      agy_help="$(agy --help 2>&1 || true)"
+      if command -v jq >/dev/null 2>&1 \
+        && printf '%s\n' "$agy_help" | grep -Eq -- '(^|[[:space:]])--output-format([[:space:]]|$)'; then
+        structured_models="$(
+          agy --output-format json models 2>/dev/null \
+            | jq -r '.command.data.models[]?.id // empty' 2>/dev/null \
+            | sort -u \
+            | tr '\n' ' '
+        )" || true
+        if [[ -n "${structured_models// /}" ]]; then
+          printf '%s' "$structured_models"
+          return 0
+        fi
+      fi
+
       agy models 2>/dev/null \
         | grep -vEi 'fetching|error|sign in|log in' \
         | grep -Eo '[a-zA-Z0-9][a-zA-Z0-9._-]{2,}' \
