@@ -523,6 +523,66 @@ catalog_model_label() {
   fi
 }
 
+# Model and effort resolution with explicit source tracking.
+#
+# Both resolvers are pure: given their arguments, the catalog file, and
+# tool_configured_model, they return the same answer every time with no side
+# effects. They print a tab-separated record on stdout and nothing else, so
+# callers can read fields with `IFS=$'\t' read ...` or `cut -f`.
+#
+# resolve_model prints:  "<model_id>\t<source>"
+#   source: explicit | provider-config | ralph-default | provider-default
+#
+# resolve_effort prints: "<effort_to_send>\t<source>\t<display_default>"
+#   effort_to_send: value to append to the CLI invocation; empty means Ralph
+#                   must not pass --effort/-c/--variant at all so the CLI uses
+#                   its own native default
+#   source:         explicit | provider-default
+#   display_default: catalog defaultEffort for the resolved model, surfaced
+#                   purely so the banner can print "model default (<value>)";
+#                   NEVER sent to the CLI unless the user explicitly asked
+#
+# The catalog schema does not currently flag a Ralph-wide default model, so the
+# resolve_model precedence step for `ralph-default` is skipped by design. If
+# a `ralphDefault: true` marker is added to config/models.json later, that
+# branch is the one place to wire it in.
+# shellcheck disable=SC2329
+resolve_model() {
+  local tool="${1:-}" cli_flag="${2:-}"
+  local model="" source="provider-default"
+  local configured=""
+
+  if [[ -n "$cli_flag" ]]; then
+    model="$cli_flag"
+    source="explicit"
+  else
+    configured="$(tool_configured_model "$tool" 2>/dev/null || true)"
+    if [[ -n "$configured" ]]; then
+      model="$configured"
+      source="provider-config"
+    fi
+  fi
+
+  printf '%s\t%s\n' "$model" "$source"
+}
+
+# shellcheck disable=SC2329
+resolve_effort() {
+  local tool="${1:-}" model="${2:-}" cli_flag="${3:-}" explicit="${4:-0}"
+  local effort="" source="provider-default" display_default=""
+
+  if [[ -n "$tool" && -n "$model" ]]; then
+    display_default="$(catalog_model_default_effort "$tool" "$model" 2>/dev/null || true)"
+  fi
+
+  if [[ "$explicit" == "1" ]]; then
+    effort="$cli_flag"
+    source="explicit"
+  fi
+
+  printf '%s\t%s\t%s\n' "$effort" "$source" "$display_default"
+}
+
 # Cursor has no --effort flag: effort rides inside the model string as a bracket
 # override. Composing it needs a model to attach to, so --effort without --model
 # has nothing to modify.
