@@ -33,6 +33,28 @@
       "cliBinary": "codex",
       "effortMechanism": "model_reasoning_effort config key",
       "models": {
+        "gpt-6-sol": {
+          "label": "Future Sol",
+          "status": "preview",
+          "efforts": ["low", "high"],
+          "defaultEffort": "high",
+          "aliases": [],
+          "successor": null,
+          "minCliVersion": null,
+          "source": "test fixture",
+          "notes": null
+        },
+        "gpt-5.6-sol": {
+          "label": "Current Sol",
+          "status": "active",
+          "efforts": ["low", "high"],
+          "defaultEffort": "high",
+          "aliases": [],
+          "successor": null,
+          "minCliVersion": null,
+          "source": "test fixture",
+          "notes": null
+        },
         "known-codex": {
           "label": "Known Codex",
           "status": "active",

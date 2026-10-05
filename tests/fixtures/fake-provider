@@ -6,6 +6,10 @@ provider="$(basename "$0")"
 
 record_work_call() {
   : "${FAKE_PROVIDER_CALLS_DIR:?}"
+  local count_file="$FAKE_PROVIDER_CALLS_DIR/$provider.count"
+  local count=0
+  [[ -f "$count_file" ]] && count="$(<"$count_file")"
+  printf '%s\n' "$((count + 1))" > "$count_file"
   printf '%s\n' "$@" > "$FAKE_PROVIDER_CALLS_DIR/$provider.args"
 }
 
@@ -39,15 +43,50 @@ HELP
     fi
     record_work_call "$@"
     last_message=""
+    model=""
     while [[ $# -gt 0 ]]; do
       case "$1" in
         -o)
           last_message="$2"
           shift 2
           ;;
+        --model)
+          model="$2"
+          shift 2
+          ;;
         *) shift ;;
       esac
     done
+
+    case "${FAKE_CODEX_MODE:-success}" in
+      generic-failure)
+        printf 'provider diagnostic padding: %0700d\n' 0
+        echo "ERROR: fake codex rejected configured model" >&2
+        exit 42
+        ;;
+      quota)
+        printf 'quota diagnostic padding: %0700d\n' 0
+        echo "You've hit your usage limit. Try again later." >&2
+        exit 1
+        ;;
+      unsupported-default|fallback-failure)
+        if [[ -z "$model" ]]; then
+          printf 'failed default padding: %0700d\n' 0
+          echo "ERROR: {\"message\":\"The 'gpt-6-sol' model is not supported when using Codex with a ChatGPT account.\"}" >&2
+          exit 1
+        fi
+        if [[ "${FAKE_CODEX_MODE:-}" == "fallback-failure" ]]; then
+          printf 'failed fallback padding: %0700d\n' 0
+          echo "ERROR: fallback model failed after selection" >&2
+          exit 44
+        fi
+        if [[ "$model" != "gpt-5.6-sol" ]]; then
+          echo "ERROR: unexpected fallback model '$model'" >&2
+          exit 43
+        fi
+        ;;
+    esac
+
     [[ -n "$last_message" ]] && printf '<promise>COMPLETE</promise>\n' > "$last_message"
     printf 'successful fake provider output: %0700d\n' 0
     ;;

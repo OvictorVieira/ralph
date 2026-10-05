@@ -115,3 +115,106 @@ setup() {
   assert_argv_pair "$CALLS_DIR/codex.args" -C "$PROJECT_ROOT"
   assert_argv_pair "$CALLS_DIR/codex.args" --model known-codex
 }
+
+@test "non-zero provider exit halts before another iteration" {
+  export FAKE_CODEX_MODE=generic-failure
+  run_ralph codex 2
+
+  [[ "$status" -eq 2 ]]
+  assert_work_call_count codex 1
+  assert_output_contains "provider 'codex' aborted iteration 1"
+  assert_output_contains "provider exited with status 42"
+  assert_output_contains "ERROR: fake codex rejected configured model"
+  assert_output_excludes "Ralph Iteration 2"
+}
+
+@test "rejected configured Codex model retries once with cached same-variant model" {
+  configure_codex_default
+  write_codex_cache <<'JSON'
+{"models":[
+  {"slug":"gpt-6-astra","visibility":"list","supported_in_api":true,"priority":2},
+  {"slug":"gpt-5.6-sol","visibility":"list","supported_in_api":true,"priority":5},
+  {"slug":"gpt-5.6-terra","visibility":"list","supported_in_api":true,"priority":8}
+]}
+JSON
+  export FAKE_CODEX_MODE=unsupported-default
+  run_ralph codex --effort high 2
+
+  assert_successful_run
+  assert_work_call_count codex 2
+  assert_output_contains "Codex model 'gpt-6-sol' is unavailable for this account"
+  assert_output_contains "equivalent model 'gpt-5.6-sol'"
+  assert_output_excludes "Ralph Iteration 2"
+  assert_argv_pair "$CALLS_DIR/codex.args" --model gpt-5.6-sol
+  assert_argv_pair "$CALLS_DIR/codex.args" -c 'model_reasoning_effort="high"'
+}
+
+@test "explicit Codex model rejection never triggers fallback" {
+  configure_codex_default
+  write_codex_cache <<'JSON'
+{"models":[{"slug":"gpt-5.6-sol","visibility":"list","supported_in_api":true,"priority":1}]}
+JSON
+  export FAKE_CODEX_MODE=unsupported-default
+  run_ralph codex --model gpt-6-sol --effort high 2
+
+  [[ "$status" -eq 2 ]]
+  assert_work_call_count codex 1
+  assert_output_excludes "Retrying once"
+  assert_output_excludes "Ralph Iteration 2"
+}
+
+@test "quota failure keeps its specific diagnosis and never triggers fallback" {
+  configure_codex_default
+  write_codex_cache <<'JSON'
+{"models":[{"slug":"gpt-5.6-sol","visibility":"list","supported_in_api":true,"priority":1}]}
+JSON
+  export FAKE_CODEX_MODE=quota
+  run_ralph codex --effort high 2
+
+  [[ "$status" -eq 2 ]]
+  assert_work_call_count codex 1
+  assert_output_contains "quota/auth message in stream"
+  assert_output_contains "provider exited with status 1"
+  assert_output_excludes "Retrying once"
+  assert_output_excludes "Ralph Iteration 2"
+}
+
+@test "missing Codex cache may use active same-variant catalog fallback" {
+  configure_codex_default
+  export FAKE_CODEX_MODE=unsupported-default
+  run_ralph codex --effort high 2
+
+  assert_successful_run
+  assert_work_call_count codex 2
+  assert_output_contains "equivalent model 'gpt-5.6-sol'"
+  assert_argv_pair "$CALLS_DIR/codex.args" --model gpt-5.6-sol
+}
+
+@test "valid cache without same variant does not promote catalog-only fallback" {
+  configure_codex_default
+  write_codex_cache <<'JSON'
+{"models":[{"slug":"gpt-6-astra","visibility":"list","supported_in_api":true,"priority":1}]}
+JSON
+  export FAKE_CODEX_MODE=unsupported-default
+  run_ralph codex --effort high 2
+
+  [[ "$status" -eq 2 ]]
+  assert_work_call_count codex 1
+  assert_output_excludes "Retrying once"
+  assert_output_excludes "Ralph Iteration 2"
+}
+
+@test "failed Codex fallback halts after its single retry" {
+  configure_codex_default
+  write_codex_cache <<'JSON'
+{"models":[{"slug":"gpt-5.6-sol","visibility":"list","supported_in_api":true,"priority":1}]}
+JSON
+  export FAKE_CODEX_MODE=fallback-failure
+  run_ralph codex --effort high 2
+
+  [[ "$status" -eq 2 ]]
+  assert_work_call_count codex 2
+  assert_output_contains "provider exited with status 44"
+  assert_output_contains "ERROR: fallback model failed after selection"
+  assert_output_excludes "Ralph Iteration 2"
+}

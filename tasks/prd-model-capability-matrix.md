@@ -206,6 +206,21 @@ Everything in this PRD is additive/corrective to `ralph.sh`. Branch handling, qu
 - [ ] All references to `gemini` as a supported tool removed from README (per US-001); a brief historical note that it was superseded by `agy` and removed is acceptable
 - [ ] Existing README sections not touched by this PRD (Setup, Workflow steps 1-3, Archiving, etc.) remain unchanged
 
+### US-016: Fallback rejected Codex defaults and halt on provider failures
+**Description:** As a Ralph user, I want Codex to retry a rejected configured/default model once with an account-available equivalent, while every unrecoverable provider failure stops the loop immediately instead of silently burning iterations.
+
+**Acceptance Criteria:**
+- [ ] Capture the real provider pipeline exit status for every supported tool instead of discarding it with `|| true`
+- [ ] When Codex rejects a configured/default model as unsupported for the current ChatGPT account, retry once in the same Ralph iteration with an account-advertised model carrying the same named variant (for example `sol` → `sol`)
+- [ ] Equivalent fallback selection prefers the local Codex models cache and may use active Ralph catalog entries only when the cache is unavailable; it never crosses named variants such as `sol` → `astra`/`terra`/`luna`
+- [ ] Explicit `--model`, quota/auth failures, and non-model provider failures never trigger model fallback
+- [ ] If no equivalent exists or the single fallback also fails, Ralph stops after the current iteration with exit code `2` and never starts the next iteration
+- [ ] The halt diagnostic names the provider, provider exit status, and a useful error line from captured output when available
+- [ ] Existing quota/auth regex keeps its more specific halt reason when both a matching message and non-zero exit status are present
+- [ ] Codex completion detection still reads only `--output-last-message`; a failed empty last-message file cannot trigger completion
+- [ ] Regression tests use fake Codex binaries for generic non-zero failure and same-variant fallback, proving behavior without the short-output heuristic or any paid model call
+- [ ] `shellcheck ralph.sh install.sh` passes with no new warnings
+
 ## Functional Requirements
 
 - FR-1: `config/models.json` is the single source of truth for model lifecycle/capability metadata; no model capability table may be hardcoded inline in `ralph.sh` for claude, codex or agy after this PRD lands.
@@ -221,13 +236,14 @@ Everything in this PRD is additive/corrective to `ralph.sh`. Branch handling, qu
 - FR-11: `gemini` must not appear in `SUPPORTED_TOOLS`, `install.sh`, `bin/ralph` wiring, or README after US-001.
 - FR-12: All new jq usage must interpolate values via `--arg`/`--argjson`, never raw string concatenation into a filter; no `eval` is introduced anywhere in `ralph.sh`.
 - FR-13: All new/modified bash functions must correctly handle paths containing spaces (project root, prompt file, catalog file).
-- FR-14: Branch handling (`detect_default_branch`, `resolve_target_branch`, `persist_branch_name`, `resolve_git_identity_from_history`), quota/rate-limit detection, quiet/verbose streaming (`-v`/`--verbose`, `TEE_TARGET`), the completion-signal check, and the iteration loop structure must not change behavior as part of this PRD.
+- FR-14: Branch handling (`detect_default_branch`, `resolve_target_branch`, `persist_branch_name`, `resolve_git_identity_from_history`), quiet/verbose streaming (`-v`/`--verbose`, `TEE_TARGET`), and completion-signal semantics must not change behavior as part of this PRD.
+- FR-15: Any provider CLI invocation that exits non-zero must halt Ralph before another iteration starts, except one same-variant retry when Codex rejects its configured/default model for the current account; quota/auth matches keep their specific diagnosis and never trigger model fallback.
 
 ## Non-Goals (Out of Scope)
 
 - No model-level catalog/effort validation for cursor, opencode or amp in this PRD — they keep today's provider-level/passthrough behavior.
 - No rewrite of the per-tool execution case block into provider-specific "argument builder" functions beyond what's needed for US-006/US-007 — a full builder-function refactor of every tool's execution is explicitly deferred (document it as a follow-up note in README or AGENTS.md, do not implement it here).
-- No adoption of structured provider output (`--output-format stream-json`, `--json`, etc.) for quota/completion detection in this PRD — document it as a documented next step only (per the original ask), the existing regex/heuristic quota detection stays exactly as-is.
+- No adoption of structured provider output (`--output-format stream-json`, `--json`, etc.) for quota/completion detection in this PRD — US-016 may preserve provider exit status, add same-variant Codex default fallback, and retain the existing regex/heuristic as the more specific quota/auth classifier.
 - No changes to the `/prd` or `/ralph` skills themselves.
 - No changes to the flowchart app.
 - No softening of the existing "project rules file must carry the stop sentinel to be used as a driver" behavior.
@@ -246,6 +262,7 @@ Everything in this PRD is additive/corrective to `ralph.sh`. Branch handling, qu
 - `ralph --tool claude --model <any-model> <n>` (no `--effort`) never includes an effort flag in the claude invocation — closes the specific bug reported.
 - `ralph --list-models` and `ralph --tool <x> --list-models` show per-model status/efforts/default for claude, codex and agy.
 - A retired model or an invalid model+effort combination fails before any provider CLI is invoked, with zero iterations burned.
+- A rejected configured Codex model retries once with an account-advertised model of the same named variant; any unrecoverable provider failure halts before another Ralph iteration.
 - The audit workflow runs on schedule with zero inference spend and produces at most one tracked issue per distinct finding.
 - `shellcheck ralph.sh install.sh` and `bats tests/` both pass clean after implementation.
 

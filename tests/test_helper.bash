@@ -32,10 +32,24 @@ run_ralph() {
     PATH="$FAKE_BIN:$PATH" \
     FAKE_PROVIDER_CALLS_DIR="$CALLS_DIR" \
     FAKE_DISCOVERY_FAIL="${FAKE_DISCOVERY_FAIL:-0}" \
+    FAKE_CODEX_MODE="${FAKE_CODEX_MODE:-success}" \
     RALPH_CATALOG_FILE="$CATALOG_FILE" \
     RALPH_PROJECT_ROOT="$PROJECT_ROOT" \
     RALPH_PROMPT_FILE="$PROMPT_FILE" \
     "$REPO_ROOT/ralph.sh" --tool "$tool" "$@"
+}
+
+configure_codex_default() {
+  mkdir -p "$FAKE_HOME/.codex"
+  cat > "$FAKE_HOME/.codex/config.toml" <<'TOML'
+model = "gpt-6-sol"
+model_reasoning_effort = "high"
+TOML
+}
+
+write_codex_cache() {
+  mkdir -p "$FAKE_HOME/.codex"
+  cat > "$FAKE_HOME/.codex/models_cache.json"
 }
 
 assert_successful_run() {
@@ -76,6 +90,17 @@ assert_no_argv_line() {
   if grep -Fq -- "$unexpected" "$file"; then
     printf 'unexpected argv content %s in %s\n' "$unexpected" "$file" >&2
     sed -n '1,160p' "$file" >&2
+    return 1
+  fi
+}
+
+assert_work_call_count() {
+  local provider="$1" expected="$2"
+  local count_file="$CALLS_DIR/$provider.count"
+  local actual=0
+  [[ -f "$count_file" ]] && actual="$(<"$count_file")"
+  if [[ "$actual" -ne "$expected" ]]; then
+    printf 'expected %s %s work calls, got %s\n' "$expected" "$provider" "$actual" >&2
     return 1
   fi
 }

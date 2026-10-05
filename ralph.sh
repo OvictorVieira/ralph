@@ -596,6 +596,57 @@ catalog_model_label() {
   fi
 }
 
+# Select a Codex fallback only within the same named model variant. For example,
+# a configured `gpt-6-sol` rejected by the account may fall back to
+# `gpt-5.6-sol`; it must not silently change to `astra`, `terra`, or `luna`.
+# The account-local Codex cache is preferred because it reflects models the
+# installed CLI currently advertises. Ralph's active catalog entries are an
+# offline fallback when that cache is absent or malformed.
+codex_equivalent_fallback() {
+  local requested="${1:-}"
+  [[ -z "$requested" ]] && return 0
+
+  local variant="${requested##*-}"
+  [[ "$variant" == "$requested" ]] && return 0
+
+  local suffix="-$variant"
+  local cache_file="${CODEX_HOME:-$HOME/.codex}/models_cache.json"
+  local fallback=""
+
+  if [[ -f "$cache_file" ]] && command -v jq >/dev/null 2>&1 \
+    && jq -e '.models | type == "array"' "$cache_file" >/dev/null 2>&1; then
+    fallback="$(jq -r --arg requested "$requested" --arg suffix "$suffix" '
+      [.models[]
+        | select(.slug != $requested)
+        | select((.visibility // "list") == "list")
+        | select((.supported_in_api // true) == true)
+        | select(.slug | endswith($suffix))]
+      | sort_by(.priority // 999999)
+      | .[0].slug // empty
+    ' "$cache_file" 2>/dev/null || true)"
+
+    # A valid cache is authoritative even when it contains no equivalent. In
+    # that case the account has advertised no safe fallback, so do not promote
+    # a catalog-only model into an account-availability claim.
+    [[ -n "$fallback" ]] && printf '%s\n' "$fallback"
+    return 0
+  fi
+
+  local catalog_file
+  catalog_file="$(resolve_catalog_file 2>/dev/null || true)"
+  if [[ -n "$catalog_file" && -f "$catalog_file" ]] && command -v jq >/dev/null 2>&1; then
+    fallback="$(jq -r --arg requested "$requested" --arg suffix "$suffix" '
+      try ([.providers.codex.models // {} | to_entries[]
+        | select(.key != $requested)
+        | select(.value.status == "active")
+        | select(.key | endswith($suffix))]
+        | .[0].key // empty) catch empty
+    ' "$catalog_file" 2>/dev/null || true)"
+  fi
+
+  [[ -n "$fallback" ]] && printf '%s\n' "$fallback"
+}
+
 # Model and effort resolution with explicit source tracking.
 #
 # Both resolvers are pure: given their arguments, the catalog file, and
@@ -1454,6 +1505,11 @@ else
   TEE_TARGET="/dev/null"
 fi
 
+# Shared by pre-retry gating and post-run halt classification. A quota or auth
+# failure must never trigger model fallback: changing models cannot fix account
+# state and would only spend another request.
+QUOTA_RE='(usage limit|quota reached|quota exceeded|rate limit|reached your limit|limit reached|limit exceeded|too many requests|upgrade to pro|purchase more credits|please upgrade your subscription|please sign in|not authenticated|not logged in|authentication (failed|required)|invalid api key|unauthorized|insufficient credit|payment required|429|resets in [0-9]+h|try again at [0-9])'
+
 for i in $(seq 1 $MAX_ITERATIONS); do
   echo ""
   echo "==============================================================="
@@ -1466,10 +1522,11 @@ for i in $(seq 1 $MAX_ITERATIONS); do
   # silently overrode the user's own configured default and went stale every
   # time a new model shipped. With no --model, each CLI uses its own default.
   ITER_START=$SECONDS
+  PROVIDER_EXIT_STATUS=0
   if [[ "$TOOL" == "amp" ]]; then
     AMP_ARGS=(--dangerously-allow-all)
     [[ -n "$MODEL" ]] && AMP_ARGS+=(--model "$MODEL")
-    OUTPUT=$(amp "${AMP_ARGS[@]}" < "$PROMPT_FILE" 2>&1 | tee "$TEE_TARGET") || true
+    OUTPUT=$(amp "${AMP_ARGS[@]}" < "$PROMPT_FILE" 2>&1 | tee "$TEE_TARGET") || PROVIDER_EXIT_STATUS=$?
   elif [[ "$TOOL" == "claude" ]]; then
     # Claude Code: --dangerously-skip-permissions for autonomous operation, --print for output.
     # --effort is only forwarded when the user asked for one; otherwise Claude uses
@@ -1477,7 +1534,7 @@ for i in $(seq 1 $MAX_ITERATIONS); do
     CLAUDE_ARGS=(--dangerously-skip-permissions --print)
     [[ -n "$MODEL" ]] && CLAUDE_ARGS+=(--model "$MODEL")
     [[ -n "$EFFORT_TO_SEND" ]] && CLAUDE_ARGS+=(--effort "$EFFORT_TO_SEND")
-    OUTPUT=$(claude "${CLAUDE_ARGS[@]}" < "$PROMPT_FILE" 2>&1 | tee "$TEE_TARGET") || true
+    OUTPUT=$(claude "${CLAUDE_ARGS[@]}" < "$PROMPT_FILE" 2>&1 | tee "$TEE_TARGET") || PROVIDER_EXIT_STATUS=$?
   elif [[ "$TOOL" == "agy" ]]; then
     # Antigravity: --print takes the prompt as its own value (space- or
     # `=`-attached) — it does not read stdin. Piping the prompt via
@@ -1488,21 +1545,21 @@ for i in $(seq 1 $MAX_ITERATIONS); do
     AGY_ARGS=(--print "$(<"$PROMPT_FILE")" --dangerously-skip-permissions)
     [[ -n "$MODEL" ]] && AGY_ARGS+=(--model "$MODEL")
     [[ -n "$EFFORT_TO_SEND" ]] && AGY_ARGS+=(--effort "$EFFORT_TO_SEND")
-    OUTPUT=$(agy "${AGY_ARGS[@]}" 2>&1 | tee "$TEE_TARGET") || true
+    OUTPUT=$(agy "${AGY_ARGS[@]}" 2>&1 | tee "$TEE_TARGET") || PROVIDER_EXIT_STATUS=$?
   elif [[ "$TOOL" == "cursor" ]]; then
     # cursor-agent takes the prompt as a positional argument, and carries effort
     # inside the model string rather than as its own flag.
     CURSOR_ARGS=(--print --force)
     CURSOR_MODEL="$(cursor_model_argument "$MODEL" "$EFFORT_EXPLICIT" "$EFFORT")"
     [[ -n "$CURSOR_MODEL" ]] && CURSOR_ARGS+=(--model "$CURSOR_MODEL")
-    OUTPUT=$(cursor-agent "${CURSOR_ARGS[@]}" "$(<"$PROMPT_FILE")" 2>&1 | tee "$TEE_TARGET") || true
+    OUTPUT=$(cursor-agent "${CURSOR_ARGS[@]}" "$(<"$PROMPT_FILE")" 2>&1 | tee "$TEE_TARGET") || PROVIDER_EXIT_STATUS=$?
   elif [[ "$TOOL" == "opencode" ]]; then
     # opencode run takes the prompt positionally; effort is --variant, and model
     # ids are provider-qualified (provider/model).
     OPENCODE_ARGS=(run --auto)
     [[ -n "$MODEL" ]] && OPENCODE_ARGS+=(--model "$MODEL")
     [[ "$EFFORT_EXPLICIT" -eq 1 ]] && OPENCODE_ARGS+=(--variant "$EFFORT")
-    OUTPUT=$("$OPENCODE_BIN" "${OPENCODE_ARGS[@]}" "$(<"$PROMPT_FILE")" 2>&1 | tee "$TEE_TARGET") || true
+    OUTPUT=$("$OPENCODE_BIN" "${OPENCODE_ARGS[@]}" "$(<"$PROMPT_FILE")" 2>&1 | tee "$TEE_TARGET") || PROVIDER_EXIT_STATUS=$?
   else
     # Codex has no --effort flag: reasoning effort is a config key, overridden
     # per-run with -c. Only sent when the user asked for one, so the value in
@@ -1520,7 +1577,31 @@ for i in $(seq 1 $MAX_ITERATIONS); do
     CODEX_ARGS=(exec --dangerously-bypass-approvals-and-sandbox -C "$PROJECT_ROOT" -o "$CODEX_LAST_MSG_FILE")
     [[ -n "$MODEL" ]] && CODEX_ARGS+=(--model "$MODEL")
     [[ -n "$EFFORT_TO_SEND" ]] && CODEX_ARGS+=(-c "model_reasoning_effort=\"$EFFORT_TO_SEND\"")
-    OUTPUT=$(codex "${CODEX_ARGS[@]}" - < "$PROMPT_FILE" 2>&1 | tee "$TEE_TARGET") || true
+    OUTPUT=$(codex "${CODEX_ARGS[@]}" - < "$PROMPT_FILE" 2>&1 | tee "$TEE_TARGET") || PROVIDER_EXIT_STATUS=$?
+
+    # A configured/default Codex model can be advertised by the local CLI yet
+    # rejected by the current ChatGPT account. Retry once with the same named
+    # variant from the account-local model cache (sol -> sol). Explicit
+    # --model remains authoritative, and quota/auth failures never retry.
+    if [[ "$PROVIDER_EXIT_STATUS" -ne 0 && -z "$MODEL" ]] \
+      && ! printf '%s\n' "$OUTPUT" | grep -qiE "$QUOTA_RE"; then
+      CODEX_REJECTED_MODEL="$(printf '%s\n' "$OUTPUT" \
+        | sed -n "s/.*The '\([^']*\)' model is not supported when using Codex with a ChatGPT account.*/\1/p" \
+        | head -1)"
+      CODEX_FALLBACK_MODEL="$(codex_equivalent_fallback "$CODEX_REJECTED_MODEL")"
+
+      if [[ -n "$CODEX_FALLBACK_MODEL" ]]; then
+        echo "Codex model '$CODEX_REJECTED_MODEL' is unavailable for this account."
+        echo "Retrying once with equivalent model '$CODEX_FALLBACK_MODEL'."
+
+        : > "$CODEX_LAST_MSG_FILE"
+        CODEX_FALLBACK_ARGS=(exec --dangerously-bypass-approvals-and-sandbox -C "$PROJECT_ROOT" -o "$CODEX_LAST_MSG_FILE" --model "$CODEX_FALLBACK_MODEL")
+        [[ -n "$EFFORT_TO_SEND" ]] && CODEX_FALLBACK_ARGS+=(-c "model_reasoning_effort=\"$EFFORT_TO_SEND\"")
+        PROVIDER_EXIT_STATUS=0
+        CODEX_FALLBACK_OUTPUT=$(codex "${CODEX_FALLBACK_ARGS[@]}" - < "$PROMPT_FILE" 2>&1 | tee "$TEE_TARGET") || PROVIDER_EXIT_STATUS=$?
+        OUTPUT+=$'\n'"$CODEX_FALLBACK_OUTPUT"
+      fi
+    fi
   fi
 
   # The completion check below must grep the agent's actual final turn, not
@@ -1550,17 +1631,28 @@ for i in $(seq 1 $MAX_ITERATIONS); do
   # emits kilobytes; a quota-bounced run exits in a few seconds with almost
   # nothing on the wire. Threshold intentionally generous (fewer false
   # halts) — a run that legitimately no-ops fast is rare and re-runnable.
-  QUOTA_RE='(usage limit|quota reached|quota exceeded|rate limit|reached your limit|limit reached|limit exceeded|too many requests|upgrade to pro|purchase more credits|please upgrade your subscription|please sign in|not authenticated|not logged in|authentication (failed|required)|invalid api key|unauthorized|insufficient credit|payment required|429|resets in [0-9]+h|try again at [0-9])'
   ITER_MIN_SECONDS=15
   OUTPUT_MIN_BYTES=500
-  QUOTA_LINE=""
+  HALT_SIGNAL=""
   HALT_REASON=""
 
-  if echo "$OUTPUT" | grep -qiE "$QUOTA_RE"; then
-    QUOTA_LINE=$(echo "$OUTPUT" | grep -iE "$QUOTA_RE" | head -1)
+  if printf '%s\n' "$OUTPUT" | grep -qiE "$QUOTA_RE"; then
+    HALT_SIGNAL=$(printf '%s\n' "$OUTPUT" | grep -iE "$QUOTA_RE" | head -1)
     HALT_REASON="quota/auth message in stream"
+    if [[ "$PROVIDER_EXIT_STATUS" -ne 0 ]]; then
+      HALT_REASON+="; provider exited with status $PROVIDER_EXIT_STATUS"
+    fi
+  elif [[ "$PROVIDER_EXIT_STATUS" -ne 0 ]]; then
+    HALT_SIGNAL=$(printf '%s\n' "$OUTPUT" \
+      | grep -iE 'error|failed|failure|invalid|unsupported|denied|forbidden|unavailable' \
+      | tail -1 || true)
+    if [[ -z "$HALT_SIGNAL" ]]; then
+      HALT_SIGNAL=$(printf '%s\n' "$OUTPUT" | awk 'NF { line=$0 } END { print line }')
+    fi
+    [[ -z "$HALT_SIGNAL" ]] && HALT_SIGNAL="(provider produced no diagnostic output)"
+    HALT_REASON="provider exited with status $PROVIDER_EXIT_STATUS"
   elif [[ "$ITER_ELAPSED" -lt "$ITER_MIN_SECONDS" && "$OUTPUT_BYTES" -lt "$OUTPUT_MIN_BYTES" ]]; then
-    QUOTA_LINE="(none captured — provider likely suppressed the warning when stdout was not a TTY)"
+    HALT_SIGNAL="(none captured — provider likely suppressed the warning when stdout was not a TTY)"
     HALT_REASON="iteration ended in ${ITER_ELAPSED}s with only ${OUTPUT_BYTES} bytes of output (real iterations take minutes and emit kilobytes)"
   fi
 
@@ -1578,9 +1670,10 @@ for i in $(seq 1 $MAX_ITERATIONS); do
       echo "${R}${B}  ⛔ Ralph halted: provider '$TOOL' aborted iteration $i.${N}"
       echo "${R}===============================================================${N}"
       echo "${Y}  Reason:${N} $HALT_REASON"
-      echo "${Y}  Signal:${N} ${R}${QUOTA_LINE}${N}"
+      echo "${Y}  Signal:${N} ${R}${HALT_SIGNAL}${N}"
       echo ""
-      echo "  No real work happened on this iteration. Most common causes:"
+      echo "  Provider did not complete cleanly. Ralph stopped before starting"
+      echo "  another iteration. Most common causes:"
       echo "    - account quota / rate limit hit"
       echo "    - session expired / not authenticated"
       echo "    - provider CLI crashed on startup"
