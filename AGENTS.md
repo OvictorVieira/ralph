@@ -63,4 +63,5 @@ npm run dev
 - AGY structured model discovery uses the root-level form `agy --output-format json models`; AGY writes `--help` to stderr, model ids live at `.command.data.models[].id`, and text discovery remains the fallback because older releases advertised the flag without implementing subcommand output
 - CLI minimum-version gates are best-effort: extract dotted numeric versions from `<tool> --version`, compare them in Bash for macOS portability, and skip the gate when the installed version is undetectable
 - Banner catalog lookups use `MODEL_RESOLVED` so configured defaults are described without forcing `--model`; extra catalog metadata stays limited to claude/codex/agy to preserve legacy provider output
+- Provider CLI regressions use `tests/model-capabilities.bats` with the shared fake-provider fixture first on `PATH`; keep tests offline by driving Ralph through `RALPH_PROJECT_ROOT`, `RALPH_PROMPT_FILE`, and `RALPH_CATALOG_FILE`
 - Always update AGENTS.md with discovered patterns for future iterations

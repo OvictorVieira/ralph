@@ -1,0 +1,89 @@
+{
+  "schemaVersion": 1,
+  "providers": {
+    "claude": {
+      "cliBinary": "claude",
+      "effortMechanism": "--effort flag",
+      "models": {
+        "known-claude": {
+          "label": "Known Claude",
+          "status": "active",
+          "efforts": ["low", "high"],
+          "defaultEffort": null,
+          "aliases": [],
+          "successor": null,
+          "minCliVersion": null,
+          "source": "test fixture",
+          "notes": null
+        },
+        "retired-claude": {
+          "label": "Retired Claude",
+          "status": "retired",
+          "efforts": ["low"],
+          "defaultEffort": null,
+          "aliases": [],
+          "successor": "known-claude",
+          "minCliVersion": null,
+          "source": "test fixture",
+          "notes": null
+        }
+      }
+    },
+    "codex": {
+      "cliBinary": "codex",
+      "effortMechanism": "model_reasoning_effort config key",
+      "models": {
+        "known-codex": {
+          "label": "Known Codex",
+          "status": "active",
+          "efforts": ["low", "high"],
+          "defaultEffort": null,
+          "aliases": [],
+          "successor": null,
+          "minCliVersion": null,
+          "source": "test fixture",
+          "notes": null
+        },
+        "retired-codex": {
+          "label": "Retired Codex",
+          "status": "retired",
+          "efforts": ["low"],
+          "defaultEffort": null,
+          "aliases": [],
+          "successor": "known-codex",
+          "minCliVersion": null,
+          "source": "test fixture",
+          "notes": null
+        }
+      }
+    },
+    "agy": {
+      "cliBinary": "agy",
+      "effortMechanism": "--effort flag",
+      "models": {
+        "known-agy": {
+          "label": "Known AGY",
+          "status": "active",
+          "efforts": ["low", "high"],
+          "defaultEffort": null,
+          "aliases": [],
+          "successor": null,
+          "minCliVersion": null,
+          "source": "test fixture",
+          "notes": null
+        },
+        "retired-agy": {
+          "label": "Retired AGY",
+          "status": "retired",
+          "efforts": ["low"],
+          "defaultEffort": null,
+          "aliases": [],
+          "successor": "known-agy",
+          "minCliVersion": null,
+          "source": "test fixture",
+          "notes": null
+        }
+      }
+    }
+  }
+}

@@ -244,6 +244,18 @@ valid values, `agy --help` documents its own, `cursor-agent --help` shows the
 bracket-override form. Amp has no such knob at all, so `--effort` there is
 rejected rather than dropped.
 
+### Tests
+
+Install [bats-core](https://github.com/bats-core/bats-core), then run the
+offline model/capability regression suite from the repository root:
+
+```bash
+bats tests/model-capabilities.bats
+```
+
+The suite places fake provider binaries first on `PATH`; it needs no installed
+AI provider CLI, network access, API key, or inference budget.
+
 ### Branches
 
 Ralph does not name branches — the project's convention does.
