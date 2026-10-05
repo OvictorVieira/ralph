@@ -98,6 +98,10 @@ TOML
 cat > "$fake_bin/codex" <<'FAKE_CODEX'
 #!/usr/bin/env bash
 set -euo pipefail
+if [[ "${1:-}" == "--version" ]]; then
+  echo "codex-cli 1.2.3"
+  exit 0
+fi
 : "${FAKE_CODEX_CALLS:?}"
 printf '%s\n' "$*" >> "$FAKE_CODEX_CALLS"
 

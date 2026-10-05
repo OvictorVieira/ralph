@@ -1087,6 +1087,7 @@ SCRIPT_DIR="$(resolve_script_dir)"
 # native model-selection behavior.
 MODEL_RECORD="$(resolve_model "$TOOL" "$MODEL" 2>/dev/null || true)"
 MODEL_RESOLVED="$(printf '%s' "$MODEL_RECORD" | cut -f1)"
+MODEL_SOURCE="$(printf '%s' "$MODEL_RECORD" | cut -f2)"
 
 # Validate tool choice
 case " $SUPPORTED_TOOLS " in
@@ -1172,6 +1173,8 @@ esac
 # field intact, which is the whole point of the contract.
 EFFORT_RECORD="$(resolve_effort "$TOOL" "$MODEL_RESOLVED" "$EFFORT" "$EFFORT_EXPLICIT" 2>/dev/null || true)"
 EFFORT_TO_SEND="$(printf '%s' "$EFFORT_RECORD" | cut -f1)"
+EFFORT_SOURCE="$(printf '%s' "$EFFORT_RECORD" | cut -f2)"
+EFFORT_DISPLAY_DEFAULT="$(printf '%s' "$EFFORT_RECORD" | cut -f3)"
 
 PROJECT_ROOT="$(detect_project_root)"
 PRD_FILE="$(resolve_prd_file "$PROJECT_ROOT" || true)"
@@ -1398,11 +1401,39 @@ if [[ -n "$MODEL" ]]; then
 else
   echo "${C_LABEL}Model:${C_RESET}        ${TOOL} default ${C_MUTED}($(tool_configured_model "$TOOL" 2>/dev/null || true))${C_RESET}"
 fi
+
+case "$TOOL" in
+  claude|codex|agy)
+    echo "${C_LABEL}Model source:${C_RESET} ${C_VALUE}$MODEL_SOURCE${C_RESET}"
+    MODEL_STATUS="$(catalog_model_status "$TOOL" "$MODEL_RESOLVED" 2>/dev/null || true)"
+    if [[ -n "$MODEL_STATUS" ]]; then
+      echo "${C_LABEL}Model status:${C_RESET} ${C_VALUE}$MODEL_STATUS${C_RESET}"
+    fi
+    ;;
+esac
+
 if tool_supports_effort "$TOOL" && [[ "$EFFORT_EXPLICIT" -eq 1 ]]; then
   echo "${C_LABEL}Effort:${C_RESET}       $EFFORT"
+elif tool_supports_effort "$TOOL" && [[ -n "$EFFORT_DISPLAY_DEFAULT" ]]; then
+  echo "${C_LABEL}Effort:${C_RESET}       model default ${C_MUTED}($EFFORT_DISPLAY_DEFAULT)${C_RESET}"
 elif tool_supports_effort "$TOOL"; then
   echo "${C_LABEL}Effort:${C_RESET}       ${TOOL} default ${C_MUTED}(no --effort given)${C_RESET}"
 fi
+
+case "$TOOL" in
+  claude|codex|agy)
+    echo "${C_LABEL}Effort source:${C_RESET} ${C_VALUE}$EFFORT_SOURCE${C_RESET}"
+    SUPPORTED_EFFORTS="$(catalog_model_efforts "$TOOL" "$MODEL_RESOLVED" 2>/dev/null || true)"
+    if [[ -n "$SUPPORTED_EFFORTS" ]]; then
+      echo "${C_LABEL}Supported:${C_RESET}    ${C_VALUE}$SUPPORTED_EFFORTS${C_RESET}"
+    fi
+    CLI_VERSION="$(tool_cli_version "$TOOL")"
+    if [[ -n "$CLI_VERSION" ]]; then
+      echo "${C_LABEL}CLI version:${C_RESET}  ${C_VALUE}$CLI_VERSION${C_RESET}"
+    fi
+    ;;
+esac
+
 RUNNING_BRANCH="$(jq -r '.branchName // empty' "$PRD_FILE" 2>/dev/null || true)"
 if [[ -n "$RUNNING_BRANCH" ]]; then
   echo "${C_LABEL}Target branch:${C_RESET} ${C_ACCENT}$RUNNING_BRANCH${C_RESET}"
