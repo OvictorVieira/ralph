@@ -817,6 +817,21 @@ if [[ -n "$MODEL" ]]; then
 fi
 
 SCRIPT_DIR="$(resolve_script_dir)"
+
+# Resolve the effort value Ralph will actually send to the provider CLI.
+# EFFORT_TO_SEND is empty when the user did NOT pass --effort, so no provider
+# gets a Ralph-synthesised reasoning-effort override and the CLI's own native
+# default stays authoritative. The global EFFORT="medium" default is kept only
+# as a banner/display fallback.
+#
+# resolve_effort returns three TAB-separated fields; the first one is empty on
+# an implicit effort. `read` with IFS=$'\t' still strips leading IFS-whitespace
+# (tab is whitespace by default), which would swallow that empty field and
+# promote the second column into EFFORT_TO_SEND. `cut -f1` keeps the empty
+# field intact, which is the whole point of the contract.
+EFFORT_RECORD="$(resolve_effort "$TOOL" "$MODEL" "$EFFORT" "$EFFORT_EXPLICIT" 2>/dev/null || true)"
+EFFORT_TO_SEND="$(printf '%s' "$EFFORT_RECORD" | cut -f1)"
+
 PROJECT_ROOT="$(detect_project_root)"
 PRD_FILE="$(resolve_prd_file "$PROJECT_ROOT" || true)"
 PROGRESS_FILE="$PROJECT_ROOT/progress.txt"
@@ -1031,9 +1046,7 @@ if [[ -n "$MODEL" ]]; then
 else
   echo "${C_LABEL}Model:${C_RESET}        ${TOOL} default ${C_MUTED}($(tool_configured_model "$TOOL" 2>/dev/null || true))${C_RESET}"
 fi
-if [[ "$TOOL" == "claude" ]]; then
-  echo "${C_LABEL}Effort:${C_RESET}       $EFFORT"
-elif tool_supports_effort "$TOOL" && [[ "$EFFORT_EXPLICIT" -eq 1 ]]; then
+if tool_supports_effort "$TOOL" && [[ "$EFFORT_EXPLICIT" -eq 1 ]]; then
   echo "${C_LABEL}Effort:${C_RESET}       $EFFORT"
 elif tool_supports_effort "$TOOL"; then
   echo "${C_LABEL}Effort:${C_RESET}       ${TOOL} default ${C_MUTED}(no --effort given)${C_RESET}"
@@ -1075,9 +1088,12 @@ for i in $(seq 1 $MAX_ITERATIONS); do
     [[ -n "$MODEL" ]] && AMP_ARGS+=(--model "$MODEL")
     OUTPUT=$(amp "${AMP_ARGS[@]}" < "$PROMPT_FILE" 2>&1 | tee "$TEE_TARGET") || true
   elif [[ "$TOOL" == "claude" ]]; then
-    # Claude Code: --dangerously-skip-permissions for autonomous operation, --print for output
-    CLAUDE_ARGS=(--effort "$EFFORT" --dangerously-skip-permissions --print)
+    # Claude Code: --dangerously-skip-permissions for autonomous operation, --print for output.
+    # --effort is only forwarded when the user asked for one; otherwise Claude uses
+    # its own per-model native default instead of Ralph silently forcing medium.
+    CLAUDE_ARGS=(--dangerously-skip-permissions --print)
     [[ -n "$MODEL" ]] && CLAUDE_ARGS+=(--model "$MODEL")
+    [[ -n "$EFFORT_TO_SEND" ]] && CLAUDE_ARGS+=(--effort "$EFFORT_TO_SEND")
     OUTPUT=$(claude "${CLAUDE_ARGS[@]}" < "$PROMPT_FILE" 2>&1 | tee "$TEE_TARGET") || true
   elif [[ "$TOOL" == "agy" ]]; then
     # Antigravity: --print takes the prompt as its own value (space- or
@@ -1088,7 +1104,7 @@ for i in $(seq 1 $MAX_ITERATIONS); do
     # work. Confirmed against the installed agy CLI (1.2.14).
     AGY_ARGS=(--print "$(<"$PROMPT_FILE")" --dangerously-skip-permissions)
     [[ -n "$MODEL" ]] && AGY_ARGS+=(--model "$MODEL")
-    [[ "$EFFORT_EXPLICIT" -eq 1 ]] && AGY_ARGS+=(--effort "$EFFORT")
+    [[ -n "$EFFORT_TO_SEND" ]] && AGY_ARGS+=(--effort "$EFFORT_TO_SEND")
     OUTPUT=$(agy "${AGY_ARGS[@]}" 2>&1 | tee "$TEE_TARGET") || true
   elif [[ "$TOOL" == "cursor" ]]; then
     # cursor-agent takes the prompt as a positional argument, and carries effort
@@ -1120,7 +1136,7 @@ for i in $(seq 1 $MAX_ITERATIONS); do
     CODEX_LAST_MSG_FILE="$(mktemp)"
     CODEX_ARGS=(exec --dangerously-bypass-approvals-and-sandbox -C "$PROJECT_ROOT" -o "$CODEX_LAST_MSG_FILE")
     [[ -n "$MODEL" ]] && CODEX_ARGS+=(--model "$MODEL")
-    [[ "$EFFORT_EXPLICIT" -eq 1 ]] && CODEX_ARGS+=(-c "model_reasoning_effort=\"$EFFORT\"")
+    [[ -n "$EFFORT_TO_SEND" ]] && CODEX_ARGS+=(-c "model_reasoning_effort=\"$EFFORT_TO_SEND\"")
     OUTPUT=$(codex "${CODEX_ARGS[@]}" - < "$PROMPT_FILE" 2>&1 | tee "$TEE_TARGET") || true
   fi
 
