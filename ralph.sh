@@ -22,9 +22,10 @@ Options:
   --model MODEL      Model to run, by hand. Defaults to the tool's own configured
                      model. Soft-checked against what the tool advertises.
   --model=MODEL      Same as above
-  --list-models      Show, per tool, its configured model, the models it
-                     advertises, and the effort levels it accepts. Queries the
-                     installed CLIs rather than a table baked into Ralph.
+  --list-models      Show each catalog model's lifecycle status, supported
+                     efforts, default effort, and differences from the models
+                     advertised by the installed CLI. Combine with --tool to
+                     restrict the output to one provider.
   --effort LEVEL     Reasoning effort: low, medium, high, xhigh, max. Ralph takes
                      one vocabulary and translates it per tool — a flag for
                      claude and agy, a config key for codex, a bracket override
@@ -424,6 +425,38 @@ resolve_catalog_file() {
 }
 
 # shellcheck disable=SC2329
+catalog_provider_models() {
+  local provider="${1:-}"
+  [[ -z "$provider" ]] && return 0
+  command -v jq >/dev/null 2>&1 || return 0
+  local catalog_file
+  catalog_file="$(resolve_catalog_file 2>/dev/null || true)"
+  [[ -n "$catalog_file" && -f "$catalog_file" ]] || return 0
+
+  jq -r --arg p "$provider" \
+    'try ((.providers[$p].models // {}) | keys_unsorted[]) catch empty' \
+    "$catalog_file" 2>/dev/null || true
+}
+
+# shellcheck disable=SC2329
+catalog_model_aliases() {
+  local provider="${1:-}" model="${2:-}"
+  [[ -z "$provider" || -z "$model" ]] && return 0
+  command -v jq >/dev/null 2>&1 || return 0
+  local catalog_file
+  catalog_file="$(resolve_catalog_file 2>/dev/null || true)"
+  [[ -n "$catalog_file" && -f "$catalog_file" ]] || return 0
+
+  local res
+  res="$(jq -r --arg p "$provider" --arg m "$model" \
+    'try ((.providers[$p].models[$m].aliases // []) | join(" ")) catch empty' \
+    "$catalog_file" 2>/dev/null || true)"
+  if [[ -n "$res" ]]; then
+    printf '%s\n' "$res"
+  fi
+}
+
+# shellcheck disable=SC2329
 catalog_model_status() {
   local provider="${1:-}" model="${2:-}"
   [[ -z "$provider" || -z "$model" ]] && return 0
@@ -778,12 +811,110 @@ tool_binary_path() {
   esac
 }
 
+model_list_contains() {
+  local models="${1:-}" candidate="${2:-}"
+  [[ -n "$candidate" ]] || return 1
+  case " $models " in
+    *" $candidate "*) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
+catalog_model_is_advertised() {
+  local provider="$1" model="$2" advertised="$3"
+  model_list_contains "$advertised" "$model" && return 0
+
+  local aliases
+  aliases="$(catalog_model_aliases "$provider" "$model" 2>/dev/null || true)"
+  local alias
+  for alias in $aliases; do
+    model_list_contains "$advertised" "$alias" && return 0
+  done
+  return 1
+}
+
+runtime_model_is_cataloged() {
+  local provider="$1" runtime_model="$2" catalog_models="$3"
+  local catalog_model
+  for catalog_model in $catalog_models; do
+    if [[ "$runtime_model" == "$catalog_model" ]] || \
+      model_list_contains "$(catalog_model_aliases "$provider" "$catalog_model" 2>/dev/null || true)" "$runtime_model"; then
+      return 0
+    fi
+  done
+  return 1
+}
+
+print_legacy_tool_models() {
+  local tool="$1" configured="$2" advertised="$3"
+
+  if [[ -n "$configured" ]]; then
+    printf '    configured default : %s\n' "$configured"
+  fi
+
+  if [[ -n "${advertised// /}" ]]; then
+    printf '    advertised by CLI  : %s\n' "${advertised% }"
+  fi
+
+  if [[ -z "$configured" && -z "${advertised// /}" ]]; then
+    printf '    %s\n' "no model list available from this CLI — any value is passed through"
+  fi
+
+  if tool_supports_effort "$tool"; then
+    printf '    effort             : %s  (via %s)\n' \
+      "$(tool_effort_values "$tool")" "$(tool_effort_mechanism "$tool")"
+  else
+    printf '    effort             : not supported by this CLI\n'
+  fi
+}
+
+print_catalog_tool_models() {
+  local tool="$1" configured="$2" advertised="$3" catalog_models="$4"
+  local model status efforts default_effort aliases marker
+  local configured_known=0 runtime_only="" catalog_only=""
+
+  printf '      %-30s %-12s %-27s %s\n' "MODEL" "STATUS" "EFFORTS" "DEFAULT"
+  for model in $catalog_models; do
+    status="$(catalog_model_status "$tool" "$model" 2>/dev/null || true)"
+    efforts="$(catalog_model_efforts "$tool" "$model" 2>/dev/null || true)"
+    default_effort="$(catalog_model_default_effort "$tool" "$model" 2>/dev/null || true)"
+    aliases="$(catalog_model_aliases "$tool" "$model" 2>/dev/null || true)"
+    marker=" "
+    if [[ -n "$configured" ]] && { [[ "$configured" == "$model" ]] || model_list_contains "$aliases" "$configured"; }; then
+      marker="*"
+      configured_known=1
+    fi
+    printf '    %s %-30s %-12s %-27s %s\n' \
+      "$marker" "$model" "${status:--}" "${efforts:--}" "${default_effort:--}"
+
+    if ! catalog_model_is_advertised "$tool" "$model" "$advertised"; then
+      catalog_only+="${catalog_only:+ }$model"
+    fi
+  done
+
+  local runtime_model
+  for runtime_model in $advertised; do
+    if ! runtime_model_is_cataloged "$tool" "$runtime_model" "$catalog_models"; then
+      runtime_only+="${runtime_only:+ }$runtime_model"
+    fi
+  done
+
+  if [[ "$configured_known" -eq 1 ]]; then
+    printf '    * configured/default model\n'
+  elif [[ -n "$configured" ]]; then
+    printf '    configured default : %s (not in catalog)\n' "$configured"
+  fi
+  [[ -n "$runtime_only" ]] && printf '    Runtime discovered: %s\n' "$runtime_only"
+  [[ -n "$catalog_only" ]] && printf '    Catalog only: %s\n' "$catalog_only"
+}
+
 print_models() {
-  local tool configured advertised installed
+  local tools="${1:-$SUPPORTED_TOOLS}"
+  local tool configured advertised installed catalog_models
 
   echo "Models"
   echo ""
-  for tool in $SUPPORTED_TOOLS; do
+  for tool in $tools; do
     if tool_binary_path "$tool" >/dev/null 2>&1; then
       installed="installed"
     else
@@ -793,24 +924,12 @@ print_models() {
     printf '  %-8s (%s)\n' "$tool" "$installed"
 
     configured="$(tool_configured_model "$tool" || true)"
-    if [[ -n "$configured" ]]; then
-      printf '    configured default : %s\n' "$configured"
-    fi
-
     advertised="$(tool_advertised_models "$tool" || true)"
-    if [[ -n "${advertised// /}" ]]; then
-      printf '    advertised by CLI  : %s\n' "${advertised% }"
-    fi
-
-    if [[ -z "$configured" && -z "${advertised// /}" ]]; then
-      printf '    %s\n' "no model list available from this CLI — any value is passed through"
-    fi
-
-    if tool_supports_effort "$tool"; then
-      printf '    effort             : %s  (via %s)\n' \
-        "$(tool_effort_values "$tool")" "$(tool_effort_mechanism "$tool")"
+    catalog_models="$(catalog_provider_models "$tool" 2>/dev/null || true)"
+    if [[ -n "$catalog_models" ]]; then
+      print_catalog_tool_models "$tool" "$configured" "$advertised" "$catalog_models"
     else
-      printf '    effort             : not supported by this CLI\n'
+      print_legacy_tool_models "$tool" "$configured" "$advertised"
     fi
     echo ""
   done
@@ -830,6 +949,8 @@ EOF
 
 # Parse arguments
 TOOL="amp"  # Default to amp for backwards compatibility
+TOOL_EXPLICIT=0
+LIST_MODELS=0
 MAX_ITERATIONS=10
 EFFORT="medium"
 EFFORT_EXPLICIT=0
@@ -844,26 +965,32 @@ while [[ $# -gt 0 ]]; do
       ;;
     --claude)
       TOOL="claude"
+      TOOL_EXPLICIT=1
       shift
       ;;
     --amp)
       TOOL="amp"
+      TOOL_EXPLICIT=1
       shift
       ;;
     --codex)
       TOOL="codex"
+      TOOL_EXPLICIT=1
       shift
       ;;
     --agy)
       TOOL="agy"
+      TOOL_EXPLICIT=1
       shift
       ;;
     --cursor)
       TOOL="cursor"
+      TOOL_EXPLICIT=1
       shift
       ;;
     --opencode)
       TOOL="opencode"
+      TOOL_EXPLICIT=1
       shift
       ;;
     --tool)
@@ -873,10 +1000,12 @@ while [[ $# -gt 0 ]]; do
         exit 1
       fi
       TOOL="$2"
+      TOOL_EXPLICIT=1
       shift 2
       ;;
     --tool=*)
       TOOL="${1#*=}"
+      TOOL_EXPLICIT=1
       shift
       ;;
     --effort)
@@ -907,8 +1036,8 @@ while [[ $# -gt 0 ]]; do
       shift
       ;;
     --list-models)
-      print_models
-      exit 0
+      LIST_MODELS=1
+      shift
       ;;
     -v|--verbose)
       VERBOSE=1
@@ -945,6 +1074,15 @@ case " $SUPPORTED_TOOLS " in
     exit 1
     ;;
 esac
+
+if [[ "$LIST_MODELS" -eq 1 ]]; then
+  if [[ "$TOOL_EXPLICIT" -eq 1 ]]; then
+    print_models "$TOOL"
+  else
+    print_models
+  fi
+  exit 0
+fi
 
 # Effort is validated against what the chosen tool accepts, not against a single
 # global list. A level one tool understands and another does not is an error
