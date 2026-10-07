@@ -39,6 +39,42 @@ setup() {
   assert_argv_pair "$CALLS_DIR/claude.args" --model manual-model
 }
 
+@test "catalog-known full model id never warns as unadvertised" {
+  # The fake claude --help only quotes 'known-claude'/'runtime-claude' as
+  # examples, same as the real CLI only quoting a few aliases. A full model
+  # id the catalog already recognizes as active must still run clean and
+  # forward both flags, instead of printing the generic "not advertised"
+  # warning meant for ids the catalog has never heard of.
+  run_ralph claude --model catalog-full-id-claude --effort high 1
+
+  assert_successful_run
+  assert_output_excludes "not in the model list 'claude' advertises"
+  assert_argv_pair "$CALLS_DIR/claude.args" --model catalog-full-id-claude
+  assert_argv_pair "$CALLS_DIR/claude.args" --effort high
+}
+
+@test "amp receives the selected model" {
+  run_ralph amp --model known-amp-model 1
+
+  assert_successful_run
+  assert_argv_pair "$CALLS_DIR/amp.args" --model known-amp-model
+}
+
+@test "cursor bakes model and effort into one override argument" {
+  run_ralph cursor --model known-cursor-model --effort high 1
+
+  assert_successful_run
+  assert_argv_pair "$CALLS_DIR/cursor-agent.args" --model 'known-cursor-model[effort=high]'
+}
+
+@test "opencode receives model flag and effort variant" {
+  run_ralph opencode --model known/opencode-model --effort high 1
+
+  assert_successful_run
+  assert_argv_pair "$CALLS_DIR/opencode.args" --model known/opencode-model
+  assert_argv_pair "$CALLS_DIR/opencode.args" --variant high
+}
+
 @test "implicit effort never adds Claude effort flags" {
   run_ralph claude --model known-claude 1
 

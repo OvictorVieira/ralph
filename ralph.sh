@@ -1186,7 +1186,15 @@ fi
 # Model is only soft-checked. Where a CLI can enumerate its models, a value
 # outside that list is worth flagging — but a full model id is frequently valid
 # without being advertised, so this warns and runs rather than refusing.
-if [[ -n "$MODEL" ]]; then
+#
+# A model the catalog already recognizes for this provider is skipped here:
+# tool_advertised_models only captures the handful of example aliases a CLI's
+# --help text happens to quote (e.g. 'sonnet'), not every valid full model id
+# (e.g. 'claude-sonnet-5'). Without this guard, every catalog-correct full id
+# that isn't one of those examples prints a false "not advertised" warning.
+# The catalog-driven block below still runs for claude/codex/agy and is the
+# authoritative check there; this guard only silences the noisier heuristic.
+if [[ -n "$MODEL" ]] && [[ -z "$(catalog_model_status "$TOOL" "$MODEL" 2>/dev/null || true)" ]]; then
   KNOWN_MODELS="$(tool_advertised_models "$TOOL" || true)"
   if [[ -n "${KNOWN_MODELS// /}" ]]; then
     case " $KNOWN_MODELS " in
