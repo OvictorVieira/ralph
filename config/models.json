@@ -1,0 +1,386 @@
+{
+  "schemaVersion": 1,
+  "providers": {
+    "claude": {
+      "cliBinary": "claude",
+      "effortMechanism": "--effort flag (session-level; valid values: low, medium, high, xhigh, max)",
+      "models": {
+        "claude-fable-5-1": {
+          "label": "Claude Fable 5.1",
+          "status": "active",
+          "efforts": ["low", "medium", "high", "xhigh", "max"],
+          "defaultEffort": null,
+          "aliases": ["fable", "claude-fable-5"],
+          "successor": null,
+          "minCliVersion": null,
+          "source": "claude --help (CLI 2.1.258) advertises alias 'fable' and the full-name form 'claude-fable-5'; dated id confirmed from Claude Code model listing current at 2026-01",
+          "notes": "Latest in the Fable family. The 'claude-fable-5' alias in CLI --help resolves to this dated id."
+        },
+        "claude-opus-5": {
+          "label": "Claude Opus 5",
+          "status": "active",
+          "efforts": ["low", "medium", "high", "xhigh", "max"],
+          "defaultEffort": null,
+          "aliases": ["opus"],
+          "successor": null,
+          "minCliVersion": null,
+          "source": "claude --help (CLI 2.1.258) advertises alias 'opus'; dated id confirmed from Claude Code model listing current at 2026-01",
+          "notes": "Reasoning model; supports --effort session flag and Claude Code fast mode."
+        },
+        "claude-sonnet-5": {
+          "label": "Claude Sonnet 5",
+          "status": "active",
+          "efforts": ["low", "medium", "high", "xhigh", "max"],
+          "defaultEffort": null,
+          "aliases": ["sonnet"],
+          "successor": null,
+          "minCliVersion": null,
+          "source": "claude --help (CLI 2.1.258) advertises alias 'sonnet'; dated id confirmed from Claude Code model listing current at 2026-01",
+          "notes": "Reasoning model; supports --effort session flag."
+        },
+        "claude-haiku-4-5-20251001": {
+          "label": "Claude Haiku 4.5",
+          "status": "active",
+          "efforts": ["low", "medium", "high", "xhigh", "max"],
+          "defaultEffort": null,
+          "aliases": ["haiku"],
+          "successor": null,
+          "minCliVersion": null,
+          "source": "Dated id confirmed from Claude Code model listing current at 2026-01; --effort flag is session-level in Claude Code and applies to this model",
+          "notes": "Fast, low-cost model in the Haiku 4.x line."
+        }
+      }
+    },
+    "codex": {
+      "cliBinary": "codex",
+      "effortMechanism": "-c model_reasoning_effort=\"<value>\" TOML config override (Codex CLI forwards verbatim; valid values enumerated by the CLI binary: minimal, low, medium, high, xhigh)",
+      "models": {
+        "gpt-6-astra": {
+          "label": "GPT-6 Astra",
+          "status": "active",
+          "efforts": ["minimal", "low", "medium", "high", "xhigh"],
+          "defaultEffort": null,
+          "aliases": [],
+          "successor": null,
+          "minCliVersion": null,
+          "source": "codex-cli 0.154.0 binary strings include the model id 'gpt-6-astra', the display label 'GPT-6-Astra', and prose stating 'GPT-6 Astra is our most intelligent model yet'",
+          "notes": "Current flagship. Codex CLI forwards -c model_reasoning_effort verbatim; the API gates which values a given model honors."
+        },
+        "gpt-5.6-sol": {
+          "label": "GPT-5.6 Sol",
+          "status": "active",
+          "efforts": ["minimal", "low", "medium", "high", "xhigh"],
+          "defaultEffort": null,
+          "aliases": [],
+          "successor": null,
+          "minCliVersion": null,
+          "source": "codex-cli 0.154.0 binary strings include 'gpt-5.6-sol' and the display label 'Sol'",
+          "notes": "5.6 family. Current production default in Codex (installed-config evidence)."
+        },
+        "gpt-5.6-luna": {
+          "label": "GPT-5.6 Luna",
+          "status": "active",
+          "efforts": ["minimal", "low", "medium", "high", "xhigh"],
+          "defaultEffort": null,
+          "aliases": [],
+          "successor": null,
+          "minCliVersion": null,
+          "source": "codex-cli 0.154.0 binary strings include 'gpt-5.6-luna' and the display label 'Luna'",
+          "notes": "5.6 family."
+        },
+        "gpt-5.6-terra": {
+          "label": "GPT-5.6 Terra",
+          "status": "active",
+          "efforts": ["minimal", "low", "medium", "high", "xhigh"],
+          "defaultEffort": null,
+          "aliases": [],
+          "successor": null,
+          "minCliVersion": null,
+          "source": "codex-cli 0.154.0 binary strings include 'gpt-5.6-terra' and the display label 'Terra'",
+          "notes": "5.6 family."
+        },
+        "gpt-daybreak-blue-latest": {
+          "label": "GPT Daybreak Blue (latest)",
+          "status": "preview",
+          "efforts": ["minimal", "low", "medium", "high", "xhigh"],
+          "defaultEffort": null,
+          "aliases": [],
+          "successor": null,
+          "minCliVersion": null,
+          "source": "codex-cli 0.154.0 binary strings include 'gpt-daybreak-blue-latest'; the '-latest' rolling tag is OpenAI's convention for preview tracks",
+          "notes": "Preview/experimental track; rolling tag means the underlying model may change without notice."
+        },
+        "gpt-daybreak-red-latest": {
+          "label": "GPT Daybreak Red (latest)",
+          "status": "preview",
+          "efforts": ["minimal", "low", "medium", "high", "xhigh"],
+          "defaultEffort": null,
+          "aliases": [],
+          "successor": null,
+          "minCliVersion": null,
+          "source": "codex-cli 0.154.0 binary strings include 'gpt-daybreak-red-latest'",
+          "notes": "Preview/experimental track; rolling tag."
+        },
+        "gpt-5.5": {
+          "label": "GPT-5.5",
+          "status": "superseded",
+          "efforts": ["minimal", "low", "medium", "high", "xhigh"],
+          "defaultEffort": null,
+          "aliases": [],
+          "successor": "gpt-5.6-sol",
+          "minCliVersion": null,
+          "source": "codex-cli 0.154.0 binary strings include 'gpt-5.5' alongside the newer 5.6 family; prior-generation entry in the GPT-5.x line",
+          "notes": "Superseded by the 5.6 family."
+        },
+        "gpt-5.4": {
+          "label": "GPT-5.4",
+          "status": "superseded",
+          "efforts": ["minimal", "low", "medium", "high", "xhigh"],
+          "defaultEffort": null,
+          "aliases": [],
+          "successor": "gpt-5.6-sol",
+          "minCliVersion": null,
+          "source": "codex-cli 0.154.0 binary strings include 'gpt-5.4' alongside newer 5.5/5.6 entries",
+          "notes": "Superseded."
+        },
+        "gpt-5.4-mini": {
+          "label": "GPT-5.4 Mini",
+          "status": "superseded",
+          "efforts": ["minimal", "low", "medium", "high", "xhigh"],
+          "defaultEffort": null,
+          "aliases": [],
+          "successor": "gpt-5.6-sol",
+          "minCliVersion": null,
+          "source": "codex-cli 0.154.0 binary strings include 'gpt-5.4-mini' alongside newer 5.5/5.6 entries",
+          "notes": "Superseded; smaller/cheaper variant of 5.4."
+        },
+        "gpt-5.3-codex": {
+          "label": "GPT-5.3 Codex",
+          "status": "superseded",
+          "efforts": ["minimal", "low", "medium", "high", "xhigh"],
+          "defaultEffort": null,
+          "aliases": [],
+          "successor": "gpt-6-astra",
+          "minCliVersion": null,
+          "source": "codex-cli 0.154.0 binary strings include 'gpt-5.3-codex'; the binary also carries a 'hide_gpt-5.1-codex-max_migration_prompt' flag confirming the codex-tuned line has been migrated forward",
+          "notes": "Codex-tuned variant from the 5.x line; superseded by gpt-6-astra."
+        },
+        "gpt-5.2": {
+          "label": "GPT-5.2",
+          "status": "superseded",
+          "efforts": ["minimal", "low", "medium", "high", "xhigh"],
+          "defaultEffort": null,
+          "aliases": [],
+          "successor": "gpt-5.6-sol",
+          "minCliVersion": null,
+          "source": "codex-cli 0.154.0 binary strings include 'gpt-5.2' alongside newer 5.x and 6.x entries",
+          "notes": "Oldest GPT-5.x entry still enumerated by the installed Codex CLI."
+        }
+      }
+    },
+    "agy": {
+      "cliBinary": "agy",
+      "effortMechanism": "--effort flag (session-level; valid values: low, medium, high, max)",
+      "models": {
+        "gemini-3.8-flash": {
+          "label": "Gemini 3.8 Flash",
+          "status": "active",
+          "efforts": ["low", "medium", "high"],
+          "defaultEffort": null,
+          "aliases": [],
+          "successor": null,
+          "minCliVersion": null,
+          "source": "agy CLI 1.2.14 accepts --model gemini-3.8-flash when combined with --effort (available: low, medium, high)",
+          "notes": "Base model identifier; requires explicit --effort (low, medium, high) in the CLI or resolves to a tiered slug."
+        },
+        "gemini-3.8-flash-high": {
+          "label": "Gemini 3.8 Flash (High)",
+          "status": "active",
+          "efforts": ["high"],
+          "defaultEffort": "high",
+          "aliases": [],
+          "successor": null,
+          "minCliVersion": null,
+          "source": "agy models (CLI 1.2.14) lists 'gemini-3.8-flash-high' with label 'Gemini 3.8 Flash (High)'",
+          "notes": "Gemini 3.8 Flash with high reasoning effort preset."
+        },
+        "gemini-3.8-flash-medium": {
+          "label": "Gemini 3.8 Flash (Medium)",
+          "status": "active",
+          "efforts": ["medium"],
+          "defaultEffort": "medium",
+          "aliases": [],
+          "successor": null,
+          "minCliVersion": null,
+          "source": "agy models (CLI 1.2.14) lists 'gemini-3.8-flash-medium' with label 'Gemini 3.8 Flash (Medium)'",
+          "notes": "Gemini 3.8 Flash with medium reasoning effort preset."
+        },
+        "gemini-3.8-flash-low": {
+          "label": "Gemini 3.8 Flash (Low)",
+          "status": "active",
+          "efforts": ["low"],
+          "defaultEffort": "low",
+          "aliases": [],
+          "successor": null,
+          "minCliVersion": null,
+          "source": "agy models (CLI 1.2.14) lists 'gemini-3.8-flash-low' with label 'Gemini 3.8 Flash (Low)'",
+          "notes": "Gemini 3.8 Flash with low reasoning effort preset."
+        },
+        "gemini-3.7-flash": {
+          "label": "Gemini 3.7 Flash",
+          "status": "superseded",
+          "efforts": ["low", "medium", "high"],
+          "defaultEffort": null,
+          "aliases": [],
+          "successor": "gemini-3.8-flash",
+          "minCliVersion": null,
+          "source": "agy CLI 1.2.14 accepts --model gemini-3.7-flash with --effort (low, medium, high); superseded by 3.8",
+          "notes": "Prior-generation Flash model; superseded by gemini-3.8-flash."
+        },
+        "gemini-3.7-flash-high": {
+          "label": "Gemini 3.7 Flash (High)",
+          "status": "superseded",
+          "efforts": ["high"],
+          "defaultEffort": "high",
+          "aliases": [],
+          "successor": "gemini-3.8-flash-high",
+          "minCliVersion": null,
+          "source": "agy models (CLI 1.2.14) lists 'gemini-3.7-flash-high' with label 'Gemini 3.7 Flash (High)'",
+          "notes": "Prior-generation Flash model with high effort; superseded by gemini-3.8-flash-high."
+        },
+        "gemini-3.7-flash-medium": {
+          "label": "Gemini 3.7 Flash (Medium)",
+          "status": "superseded",
+          "efforts": ["medium"],
+          "defaultEffort": "medium",
+          "aliases": [],
+          "successor": "gemini-3.8-flash-medium",
+          "minCliVersion": null,
+          "source": "agy models (CLI 1.2.14) lists 'gemini-3.7-flash-medium' with label 'Gemini 3.7 Flash (Medium)'",
+          "notes": "Prior-generation Flash model with medium effort; superseded by gemini-3.8-flash-medium."
+        },
+        "gemini-3.7-flash-low": {
+          "label": "Gemini 3.7 Flash (Low)",
+          "status": "superseded",
+          "efforts": ["low"],
+          "defaultEffort": "low",
+          "aliases": [],
+          "successor": "gemini-3.8-flash-low",
+          "minCliVersion": null,
+          "source": "agy models (CLI 1.2.14) lists 'gemini-3.7-flash-low' with label 'Gemini 3.7 Flash (Low)'",
+          "notes": "Prior-generation Flash model with low effort; superseded by gemini-3.8-flash-low."
+        },
+        "gemini-3.6-flash": {
+          "label": "Gemini 3.6 Flash",
+          "status": "superseded",
+          "efforts": ["low", "medium", "high"],
+          "defaultEffort": null,
+          "aliases": [],
+          "successor": "gemini-3.8-flash",
+          "minCliVersion": null,
+          "source": "agy CLI 1.2.14 accepts --model gemini-3.6-flash with --effort (low, medium, high); superseded by 3.8",
+          "notes": "Prior-generation Flash model; superseded by gemini-3.8-flash."
+        },
+        "gemini-3.6-flash-high": {
+          "label": "Gemini 3.6 Flash (High)",
+          "status": "superseded",
+          "efforts": ["high"],
+          "defaultEffort": "high",
+          "aliases": [],
+          "successor": "gemini-3.8-flash-high",
+          "minCliVersion": null,
+          "source": "agy models (CLI 1.2.14) lists 'gemini-3.6-flash-high' with label 'Gemini 3.6 Flash (High)'",
+          "notes": "Prior-generation Flash model with high effort; superseded by gemini-3.8-flash-high."
+        },
+        "gemini-3.6-flash-medium": {
+          "label": "Gemini 3.6 Flash (Medium)",
+          "status": "superseded",
+          "efforts": ["medium"],
+          "defaultEffort": "medium",
+          "aliases": [],
+          "successor": "gemini-3.8-flash-medium",
+          "minCliVersion": null,
+          "source": "agy models (CLI 1.2.14) lists 'gemini-3.6-flash-medium' with label 'Gemini 3.6 Flash (Medium)'",
+          "notes": "Prior-generation Flash model with medium effort; superseded by gemini-3.8-flash-medium."
+        },
+        "gemini-3.6-flash-low": {
+          "label": "Gemini 3.6 Flash (Low)",
+          "status": "superseded",
+          "efforts": ["low"],
+          "defaultEffort": "low",
+          "aliases": [],
+          "successor": "gemini-3.8-flash-low",
+          "minCliVersion": null,
+          "source": "agy models (CLI 1.2.14) lists 'gemini-3.6-flash-low' with label 'Gemini 3.6 Flash (Low)'",
+          "notes": "Prior-generation Flash model with low effort; superseded by gemini-3.8-flash-low."
+        },
+        "gemini-3.1-pro": {
+          "label": "Gemini 3.1 Pro",
+          "status": "active",
+          "efforts": ["low", "high"],
+          "defaultEffort": null,
+          "aliases": [],
+          "successor": null,
+          "minCliVersion": null,
+          "source": "agy CLI 1.2.14 accepts --model gemini-3.1-pro with --effort (available: low, high; medium not supported)",
+          "notes": "Pro reasoning model; only low and high efforts are supported."
+        },
+        "gemini-3.1-pro-high": {
+          "label": "Gemini 3.1 Pro (High)",
+          "status": "active",
+          "efforts": ["high"],
+          "defaultEffort": "high",
+          "aliases": [],
+          "successor": null,
+          "minCliVersion": null,
+          "source": "agy models (CLI 1.2.14) lists 'gemini-3.1-pro-high' with label 'Gemini 3.1 Pro (High)'",
+          "notes": "Gemini 3.1 Pro with high effort preset."
+        },
+        "gemini-3.1-pro-low": {
+          "label": "Gemini 3.1 Pro (Low)",
+          "status": "active",
+          "efforts": ["low"],
+          "defaultEffort": "low",
+          "aliases": [],
+          "successor": null,
+          "minCliVersion": null,
+          "source": "agy models (CLI 1.2.14) lists 'gemini-3.1-pro-low' with label 'Gemini 3.1 Pro (Low)'",
+          "notes": "Gemini 3.1 Pro with low effort preset."
+        },
+        "claude-sonnet-4-6": {
+          "label": "Claude Sonnet 4.6 (Thinking)",
+          "status": "active",
+          "efforts": [],
+          "defaultEffort": null,
+          "aliases": [],
+          "successor": null,
+          "minCliVersion": null,
+          "source": "agy models (CLI 1.2.14) lists 'claude-sonnet-4-6'; CLI reports --effort is not supported for this model",
+          "notes": "Anthropic model hosted in AGY; effort override is not supported."
+        },
+        "claude-opus-4-6-thinking": {
+          "label": "Claude Opus 4.6 (Thinking)",
+          "status": "active",
+          "efforts": [],
+          "defaultEffort": null,
+          "aliases": [],
+          "successor": null,
+          "minCliVersion": null,
+          "source": "agy models (CLI 1.2.14) lists 'claude-opus-4-6-thinking'; CLI reports --effort is not supported for this model",
+          "notes": "Anthropic model hosted in AGY; effort override is not supported."
+        },
+        "gpt-oss-120b-medium": {
+          "label": "GPT-OSS 120B (Medium)",
+          "status": "active",
+          "efforts": ["medium"],
+          "defaultEffort": "medium",
+          "aliases": ["gpt-oss-120b"],
+          "successor": null,
+          "minCliVersion": null,
+          "source": "agy models (CLI 1.2.14) lists 'gpt-oss-120b-medium'; CLI reports only medium effort is available",
+          "notes": "Open-weight model hosted in AGY; accepts alias 'gpt-oss-120b' and fixed at medium effort."
+        }
+      }
+    }
+  }
+}

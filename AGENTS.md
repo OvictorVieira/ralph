@@ -2,7 +2,7 @@
 
 ## Overview
 
-Ralph is an autonomous AI agent loop that runs AI coding tools (Amp, Claude Code, Gemini CLI, or Codex CLI) repeatedly until all PRD items are complete. Each iteration is a fresh instance with clean context.
+Ralph is an autonomous AI agent loop that runs AI coding tools (Amp, Claude Code, Codex CLI, Antigravity, Cursor Agent, OpenCode) repeatedly until all PRD items are complete. Each iteration is a fresh instance with clean context.
 
 ## Commands
 
@@ -19,9 +19,6 @@ cd flowchart && npm run build
 # Run Ralph with Claude Code
 ./ralph.sh --tool claude [max_iterations]
 
-# Run Ralph with Gemini CLI
-./ralph.sh --tool gemini [max_iterations]
-
 # Run Ralph with Codex CLI
 ./ralph.sh --tool codex [max_iterations]
 
@@ -30,17 +27,15 @@ cd flowchart && npm run build
 
 # Run Ralph from any project after installation
 ralph --tool claude [max_iterations]
-ralph --tool gemini [max_iterations]
 ralph --tool codex [max_iterations]
 ```
 
 ## Key Files
 
-- `ralph.sh` - The bash loop that spawns fresh AI instances (supports `--tool amp`, `--tool claude`, `--tool gemini`, or `--tool codex`)
+- `ralph.sh` - The bash loop that spawns fresh AI instances (supports `--tool amp`, `--tool claude`, `--tool codex`, `--tool agy`, `--tool cursor`, `--tool opencode`)
 - `bin/ralph` - Global launcher installed into `~/.local/bin/ralph`
 - `AMP.md` - Instructions given to each AMP instance
 - `CLAUDE.md` - Instructions given to each Claude Code instance
-- `GEMINI.md` - Instructions given to each Gemini CLI instance
 - `CODEX.md` - Instructions given to each Codex CLI instance
 - `prd.json.example` - Example PRD format
 - `install.sh` - Installs Ralph globally to `~/.local`
@@ -60,8 +55,15 @@ npm run dev
 
 ## Patterns
 
-- Each iteration spawns a fresh AI instance (Amp, Claude Code, Gemini CLI, or Codex CLI) with clean context
+- Each iteration spawns a fresh AI instance (Amp, Claude Code, Codex CLI, Antigravity, Cursor Agent, OpenCode) with clean context
 - Memory persists via git history, `progress.txt`, and `prd.json`
 - Installed Ralph reads `prd.json` and `progress.txt` from the current project root, while its prompt files live in the global install directory
 - Stories should be small enough to complete in one context window
+- Provider output pipelines must preserve the CLI exit status; never discard failures with `|| true`, because output-size heuristics cannot classify every provider error
+- Codex default-model fallback is limited to exact account-rejection errors, one retry, and the same named variant (`sol` to `sol`); explicit models, quota/auth failures, and unrelated errors halt without fallback
+- Catalog audits may infer additions from official current-model pages, but lifecycle downgrades require explicit upstream deprecation/retirement evidence; local CLI metadata commands must never send prompts
+- AGY structured model discovery uses the root-level form `agy --output-format json models`; AGY writes `--help` to stderr, model ids live at `.command.data.models[].id`, and text discovery remains the fallback because older releases advertised the flag without implementing subcommand output
+- CLI minimum-version gates are best-effort: extract dotted numeric versions from `<tool> --version`, compare them in Bash for macOS portability, and skip the gate when the installed version is undetectable
+- Banner catalog lookups use `MODEL_RESOLVED` so configured defaults are described without forcing `--model`; extra catalog metadata stays limited to claude/codex/agy to preserve legacy provider output
+- Provider CLI regressions use `tests/model-capabilities.bats` with the shared fake-provider fixture first on `PATH`; keep tests offline by driving Ralph through `RALPH_PROJECT_ROOT`, `RALPH_PROMPT_FILE`, and `RALPH_CATALOG_FILE`
 - Always update AGENTS.md with discovered patterns for future iterations

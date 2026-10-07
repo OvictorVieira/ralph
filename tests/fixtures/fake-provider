@@ -1,0 +1,146 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+provider="$(basename "$0")"
+
+record_work_call() {
+  : "${FAKE_PROVIDER_CALLS_DIR:?}"
+  local count_file="$FAKE_PROVIDER_CALLS_DIR/$provider.count"
+  local count=0
+  [[ -f "$count_file" ]] && count="$(<"$count_file")"
+  printf '%s\n' "$((count + 1))" > "$count_file"
+  printf '%s\n' "$@" > "$FAKE_PROVIDER_CALLS_DIR/$provider.args"
+  # Dump the subprocess env for tests that assert on inherited variables
+  # (e.g. plugin-neutralizing CAVEMAN_DEFAULT_MODE=off).
+  env > "$FAKE_PROVIDER_CALLS_DIR/$provider.env"
+}
+
+complete_stream_run() {
+  printf 'successful fake provider output: %0700d\n' 0
+  printf '<promise>COMPLETE</promise>\n'
+}
+
+case "$provider" in
+  claude)
+    if [[ "${1:-}" == "--help" ]]; then
+      [[ "${FAKE_DISCOVERY_FAIL:-0}" == "1" ]] && exit 1
+      cat <<'HELP'
+Usage: claude
+  --model <model>  Model alias ('known-claude', 'runtime-claude').
+  --effort <level>  Reasoning effort (low, high)
+HELP
+      exit 0
+    fi
+    if [[ "${1:-}" == "--version" ]]; then
+      echo "1.2.3 (Claude Code)"
+      exit 0
+    fi
+    record_work_call "$@"
+    complete_stream_run
+    ;;
+  codex)
+    if [[ "${1:-}" == "--version" ]]; then
+      echo "codex-cli 1.2.3"
+      exit 0
+    fi
+    record_work_call "$@"
+    last_message=""
+    model=""
+    while [[ $# -gt 0 ]]; do
+      case "$1" in
+        -o)
+          last_message="$2"
+          shift 2
+          ;;
+        --model)
+          model="$2"
+          shift 2
+          ;;
+        *) shift ;;
+      esac
+    done
+
+    case "${FAKE_CODEX_MODE:-success}" in
+      generic-failure)
+        printf 'provider diagnostic padding: %0700d\n' 0
+        echo "ERROR: fake codex rejected configured model" >&2
+        exit 42
+        ;;
+      quota)
+        printf 'quota diagnostic padding: %0700d\n' 0
+        echo "You've hit your usage limit. Try again later." >&2
+        exit 1
+        ;;
+      unsupported-default|fallback-failure)
+        if [[ -z "$model" ]]; then
+          printf 'failed default padding: %0700d\n' 0
+          echo "ERROR: {\"message\":\"The 'gpt-6-sol' model is not supported when using Codex with a ChatGPT account.\"}" >&2
+          exit 1
+        fi
+        if [[ "${FAKE_CODEX_MODE:-}" == "fallback-failure" ]]; then
+          printf 'failed fallback padding: %0700d\n' 0
+          echo "ERROR: fallback model failed after selection" >&2
+          exit 44
+        fi
+        if [[ "$model" != "gpt-5.6-sol" ]]; then
+          echo "ERROR: unexpected fallback model '$model'" >&2
+          exit 43
+        fi
+        ;;
+    esac
+
+    [[ -n "$last_message" ]] && printf '<promise>COMPLETE</promise>\n' > "$last_message"
+    printf 'successful fake provider output: %0700d\n' 0
+    ;;
+  agy)
+    if [[ "${1:-}" == "--help" ]]; then
+      [[ "${FAKE_DISCOVERY_FAIL:-0}" == "1" ]] && exit 1
+      echo "  --output-format  Output format (text, json)" >&2
+      echo "  --effort  Reasoning effort (low, high)" >&2
+      exit 0
+    fi
+    if [[ "${1:-}" == "--version" ]]; then
+      echo "agy version 1.2.3"
+      exit 0
+    fi
+    if [[ "${1:-}" == "--output-format" ]]; then
+      [[ "${FAKE_DISCOVERY_FAIL:-0}" == "1" ]] && exit 1
+      echo '{"command":{"data":{"models":[{"id":"known-agy"},{"id":"runtime-agy"}]}}}'
+      exit 0
+    fi
+    if [[ "${1:-}" == "models" ]]; then
+      [[ "${FAKE_DISCOVERY_FAIL:-0}" == "1" ]] && exit 1
+      printf '%s\n' "known-agy Known AGY" "runtime-agy Runtime AGY"
+      exit 0
+    fi
+    record_work_call "$@"
+    complete_stream_run
+    ;;
+  cursor-agent)
+    if [[ "${1:-}" == "--list-models" ]]; then
+      [[ "${FAKE_DISCOVERY_FAIL:-0}" == "1" ]] && exit 1
+      echo "fake-cursor-model"
+      exit 0
+    fi
+    record_work_call "$@"
+    complete_stream_run
+    ;;
+  opencode)
+    if [[ "${1:-}" == "models" ]]; then
+      [[ "${FAKE_DISCOVERY_FAIL:-0}" == "1" ]] && exit 1
+      echo "fake/opencode-model"
+      exit 0
+    fi
+    record_work_call "$@"
+    complete_stream_run
+    ;;
+  amp)
+    record_work_call "$@"
+    complete_stream_run
+    ;;
+  *)
+    echo "unexpected fake provider name: $provider" >&2
+    exit 2
+    ;;
+esac

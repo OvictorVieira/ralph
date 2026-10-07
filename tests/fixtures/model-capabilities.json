@@ -1,0 +1,122 @@
+{
+  "schemaVersion": 1,
+  "providers": {
+    "claude": {
+      "cliBinary": "claude",
+      "effortMechanism": "--effort flag",
+      "models": {
+        "known-claude": {
+          "label": "Known Claude",
+          "status": "active",
+          "efforts": ["low", "high"],
+          "defaultEffort": null,
+          "aliases": [],
+          "successor": null,
+          "minCliVersion": null,
+          "source": "test fixture",
+          "notes": null
+        },
+        "retired-claude": {
+          "label": "Retired Claude",
+          "status": "retired",
+          "efforts": ["low"],
+          "defaultEffort": null,
+          "aliases": [],
+          "successor": "known-claude",
+          "minCliVersion": null,
+          "source": "test fixture",
+          "notes": null
+        },
+        "catalog-full-id-claude": {
+          "label": "Catalog Full Id Claude",
+          "status": "active",
+          "efforts": ["low", "high"],
+          "defaultEffort": null,
+          "aliases": [],
+          "successor": null,
+          "minCliVersion": null,
+          "source": "test fixture",
+          "notes": "id intentionally absent from the fake CLI's --help example list, mirroring a real full model id the CLI accepts but does not quote as an example alias"
+        }
+      }
+    },
+    "codex": {
+      "cliBinary": "codex",
+      "effortMechanism": "model_reasoning_effort config key",
+      "models": {
+        "gpt-6-sol": {
+          "label": "Future Sol",
+          "status": "preview",
+          "efforts": ["low", "high"],
+          "defaultEffort": "high",
+          "aliases": [],
+          "successor": null,
+          "minCliVersion": null,
+          "source": "test fixture",
+          "notes": null
+        },
+        "gpt-5.6-sol": {
+          "label": "Current Sol",
+          "status": "active",
+          "efforts": ["low", "high"],
+          "defaultEffort": "high",
+          "aliases": [],
+          "successor": null,
+          "minCliVersion": null,
+          "source": "test fixture",
+          "notes": null
+        },
+        "known-codex": {
+          "label": "Known Codex",
+          "status": "active",
+          "efforts": ["low", "high"],
+          "defaultEffort": null,
+          "aliases": [],
+          "successor": null,
+          "minCliVersion": null,
+          "source": "test fixture",
+          "notes": null
+        },
+        "retired-codex": {
+          "label": "Retired Codex",
+          "status": "retired",
+          "efforts": ["low"],
+          "defaultEffort": null,
+          "aliases": [],
+          "successor": "known-codex",
+          "minCliVersion": null,
+          "source": "test fixture",
+          "notes": null
+        }
+      }
+    },
+    "agy": {
+      "cliBinary": "agy",
+      "effortMechanism": "--effort flag",
+      "models": {
+        "known-agy": {
+          "label": "Known AGY",
+          "status": "active",
+          "efforts": ["low", "high"],
+          "defaultEffort": null,
+          "aliases": [],
+          "successor": null,
+          "minCliVersion": null,
+          "source": "test fixture",
+          "notes": null
+        },
+        "retired-agy": {
+          "label": "Retired AGY",
+          "status": "retired",
+          "efforts": ["low"],
+          "defaultEffort": null,
+          "aliases": [],
+          "successor": "known-agy",
+          "minCliVersion": null,
+          "source": "test fixture",
+          "notes": null
+        }
+      }
+    }
+  }
+}

@@ -9,5 +9,12 @@ progress.txt
 # OS files
 .DS_Store
 
+# Python bytecode (model catalog audit tooling)
+__pycache__/
+*.pyc
+
 #Claude
 .claude/
+
+# Git worktrees (local parallel work trees, never pushed)
+.worktrees/

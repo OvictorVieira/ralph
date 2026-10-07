@@ -1,17 +1,17 @@
 #!/bin/bash
 # Ralph Wiggum - Long-running AI agent loop
-# Usage: ralph [--tool amp|claude|gemini|codex] [max_iterations]
+# Usage: ralph [--tool amp|claude|codex|agy|cursor|opencode] [max_iterations]
 
 set -euo pipefail
 
 print_usage() {
   cat <<'EOF'
-Usage: ralph [--tool claude|codex|agy|cursor|opencode|amp|gemini] [--model MODEL]
+Usage: ralph [--tool claude|codex|agy|cursor|opencode|amp] [--model MODEL]
              [--effort low|medium|high|xhigh|max] [max_iterations]
 
 Options:
   --tool TOOL        Agent to run. Supported: claude, codex, agy, cursor,
-                     opencode, amp, gemini
+                     opencode, amp
   --tool=TOOL        Same as above
   --claude           Shortcut for --tool claude
   --codex            Shortcut for --tool codex
@@ -19,13 +19,13 @@ Options:
   --cursor           Shortcut for --tool cursor    (cursor-agent)
   --opencode         Shortcut for --tool opencode
   --amp              Shortcut for --tool amp
-  --gemini           Shortcut for --tool gemini    (superseded by agy)
   --model MODEL      Model to run, by hand. Defaults to the tool's own configured
                      model. Soft-checked against what the tool advertises.
   --model=MODEL      Same as above
-  --list-models      Show, per tool, its configured model, the models it
-                     advertises, and the effort levels it accepts. Queries the
-                     installed CLIs rather than a table baked into Ralph.
+  --list-models      Show each catalog model's lifecycle status, supported
+                     efforts, default effort, and differences from the models
+                     advertised by the installed CLI. Combine with --tool to
+                     restrict the output to one provider.
   --effort LEVEL     Reasoning effort: low, medium, high, xhigh, max. Ralph takes
                      one vocabulary and translates it per tool — a flag for
                      claude and agy, a config key for codex, a bracket override
@@ -49,7 +49,7 @@ Environment:
                      prompt and the installed one.
 
 Prompts:
-  The driver prompt is named after the tool (CLAUDE.md, GEMINI.md, ...), which
+  The driver prompt is named after the tool (CLAUDE.md, CODEX.md, ...), which
   is also what those tools call a project's own rules file. A project-local file
   is used only when it carries Ralph's stop signal — a customized copy of a
   shipped prompt does, a rules file does not. Otherwise the installed prompt is
@@ -245,7 +245,7 @@ resolve_git_identity_from_history() {
   fi
 }
 
-SUPPORTED_TOOLS="amp claude codex agy cursor opencode gemini"
+SUPPORTED_TOOLS="amp claude codex agy cursor opencode"
 
 # opencode installs to ~/.opencode/bin and does not always land on PATH.
 resolve_opencode_bin() {
@@ -311,10 +311,10 @@ tool_effort_mechanism() {
 }
 
 # Model discovery is per-tool because no two of these CLIs expose it the same
-# way, and none of them offers a machine-readable list. Rather than hardcode a
-# table that rots the moment a vendor ships a model, ask each CLI what it knows
-# and say plainly where the answer came from — including when the answer is
-# "it does not tell us".
+# way. Prefer structured output when a CLI advertises it; otherwise parse the
+# stable text surface rather than hardcoding a table that rots when a vendor
+# ships a model. Say plainly where the answer came from — including when the
+# answer is "it does not tell us".
 tool_configured_model() {
   case "$1" in
     claude)
@@ -325,10 +325,6 @@ tool_configured_model() {
       [[ -f "$HOME/.codex/config.toml" ]] || return 0
       sed -n 's/^[[:space:]]*model[[:space:]]*=[[:space:]]*"\([^"]*\)".*/\1/p' \
         "$HOME/.codex/config.toml" 2>/dev/null | head -n 1
-      ;;
-    gemini)
-      [[ -f "$HOME/.gemini/settings.json" ]] || return 0
-      jq -r '.model // .model.name // empty' "$HOME/.gemini/settings.json" 2>/dev/null || true
       ;;
   esac
 }
@@ -353,6 +349,28 @@ tool_advertised_models() {
       ;;
     agy)
       command -v agy >/dev/null 2>&1 || return 0
+
+      # AGY exposes structured model data through the root-level output flag:
+      # `agy --output-format json models`. Some older releases advertised the
+      # flag without implementing it for subcommands, so fall back unless the
+      # command also returns parseable model ids.
+      local agy_help structured_models
+      # AGY writes help to stderr, unlike most of the provider CLIs.
+      agy_help="$(agy --help 2>&1 || true)"
+      if command -v jq >/dev/null 2>&1 \
+        && printf '%s\n' "$agy_help" | grep -Eq -- '(^|[[:space:]])--output-format([[:space:]]|$)'; then
+        structured_models="$(
+          agy --output-format json models 2>/dev/null \
+            | jq -r '.command.data.models[]?.id // empty' 2>/dev/null \
+            | sort -u \
+            | tr '\n' ' '
+        )" || true
+        if [[ -n "${structured_models// /}" ]]; then
+          printf '%s' "$structured_models"
+          return 0
+        fi
+      fi
+
       agy models 2>/dev/null \
         | grep -vEi 'fetching|error|sign in|log in' \
         | grep -Eo '[a-zA-Z0-9][a-zA-Z0-9._-]{2,}' \
@@ -378,6 +396,459 @@ tool_advertised_models() {
         | tr '\n' ' '
       ;;
   esac
+}
+
+# Catalog vs runtime discovery:
+#
+# config/models.json is Ralph's curated catalog of per-model capability and
+# lifecycle metadata. Runtime discovery (above) remains authoritative for what
+# the local CLI installation advertises; the catalog complements it with
+# metadata CLIs do not surface: lifecycle state (active, preview, superseded,
+# deprecated, retired), per-model effort overrides, and successor pointers.
+#
+# For claude and codex, the catalog is the primary authority for lifecycle and
+# effort bounds. For agy, runtime discovery is primary and the catalog serves
+# as a fallback. Tools without catalog entries (cursor, opencode, amp) bypass
+# catalog checks entirely.
+#
+# All catalog lookup functions handle missing or malformed catalog files
+# gracefully without failing, falling back to empty values (or the raw model
+# identifier in the case of catalog_model_label), so Ralph continues running.
+# shellcheck disable=SC2329
+resolve_catalog_file() {
+  if [[ -n "${RALPH_CATALOG_FILE:-}" ]]; then
+    if [[ -f "$RALPH_CATALOG_FILE" ]]; then
+      printf '%s\n' "$RALPH_CATALOG_FILE"
+      return 0
+    fi
+    return 1
+  fi
+
+  local script_dir="${SCRIPT_DIR:-$(resolve_script_dir)}"
+
+  if [[ -f "$script_dir/config/models.json" ]]; then
+    printf '%s\n' "$script_dir/config/models.json"
+    return 0
+  fi
+
+  if [[ -f "$script_dir/models.json" ]]; then
+    printf '%s\n' "$script_dir/models.json"
+    return 0
+  fi
+
+  local project_root
+  project_root="${PROJECT_ROOT:-$(detect_project_root 2>/dev/null || true)}"
+  if [[ -n "$project_root" && -f "$project_root/config/models.json" ]]; then
+    printf '%s\n' "$project_root/config/models.json"
+    return 0
+  fi
+
+  return 1
+}
+
+# shellcheck disable=SC2329
+catalog_provider_models() {
+  local provider="${1:-}"
+  [[ -z "$provider" ]] && return 0
+  command -v jq >/dev/null 2>&1 || return 0
+  local catalog_file
+  catalog_file="$(resolve_catalog_file 2>/dev/null || true)"
+  [[ -n "$catalog_file" && -f "$catalog_file" ]] || return 0
+
+  jq -r --arg p "$provider" \
+    'try ((.providers[$p].models // {}) | keys_unsorted[]) catch empty' \
+    "$catalog_file" 2>/dev/null || true
+}
+
+# shellcheck disable=SC2329
+catalog_model_aliases() {
+  local provider="${1:-}" model="${2:-}"
+  [[ -z "$provider" || -z "$model" ]] && return 0
+  command -v jq >/dev/null 2>&1 || return 0
+  local catalog_file
+  catalog_file="$(resolve_catalog_file 2>/dev/null || true)"
+  [[ -n "$catalog_file" && -f "$catalog_file" ]] || return 0
+
+  local res
+  res="$(jq -r --arg p "$provider" --arg m "$model" \
+    'try ((.providers[$p].models[$m].aliases // []) | join(" ")) catch empty' \
+    "$catalog_file" 2>/dev/null || true)"
+  if [[ -n "$res" ]]; then
+    printf '%s\n' "$res"
+  fi
+}
+
+# shellcheck disable=SC2329
+catalog_model_status() {
+  local provider="${1:-}" model="${2:-}"
+  [[ -z "$provider" || -z "$model" ]] && return 0
+  command -v jq >/dev/null 2>&1 || return 0
+  local catalog_file
+  catalog_file="$(resolve_catalog_file 2>/dev/null || true)"
+  [[ -n "$catalog_file" && -f "$catalog_file" ]] || return 0
+
+  local res
+  res="$(jq -r --arg p "$provider" --arg m "$model" \
+    'try ((.providers[$p].models // {}) as $models | (($models[$m] // ([ $models[] | select(.aliases[]? == $m) ][0])) // empty) | .status // empty) catch empty' \
+    "$catalog_file" 2>/dev/null || true)"
+  if [[ -n "$res" ]]; then
+    printf '%s\n' "$res"
+  fi
+}
+
+# shellcheck disable=SC2329
+catalog_model_efforts() {
+  local provider="${1:-}" model="${2:-}"
+  [[ -z "$provider" || -z "$model" ]] && return 0
+  command -v jq >/dev/null 2>&1 || return 0
+  local catalog_file
+  catalog_file="$(resolve_catalog_file 2>/dev/null || true)"
+  [[ -n "$catalog_file" && -f "$catalog_file" ]] || return 0
+
+  local res
+  res="$(jq -r --arg p "$provider" --arg m "$model" \
+    'try ((.providers[$p].models // {}) as $models | (($models[$m] // ([ $models[] | select(.aliases[]? == $m) ][0])) // empty) | ((.efforts // []) | join(" ")) | if . == "" then empty else . end) catch empty' \
+    "$catalog_file" 2>/dev/null || true)"
+  if [[ -n "$res" ]]; then
+    printf '%s\n' "$res"
+  fi
+}
+
+# shellcheck disable=SC2329
+catalog_model_default_effort() {
+  local provider="${1:-}" model="${2:-}"
+  [[ -z "$provider" || -z "$model" ]] && return 0
+  command -v jq >/dev/null 2>&1 || return 0
+  local catalog_file
+  catalog_file="$(resolve_catalog_file 2>/dev/null || true)"
+  [[ -n "$catalog_file" && -f "$catalog_file" ]] || return 0
+
+  local res
+  res="$(jq -r --arg p "$provider" --arg m "$model" \
+    'try ((.providers[$p].models // {}) as $models | (($models[$m] // ([ $models[] | select(.aliases[]? == $m) ][0])) // empty) | .defaultEffort // empty) catch empty' \
+    "$catalog_file" 2>/dev/null || true)"
+  if [[ -n "$res" ]]; then
+    printf '%s\n' "$res"
+  fi
+}
+
+# shellcheck disable=SC2329
+catalog_model_min_cli_version() {
+  local provider="${1:-}" model="${2:-}"
+  [[ -z "$provider" || -z "$model" ]] && return 0
+  command -v jq >/dev/null 2>&1 || return 0
+  local catalog_file
+  catalog_file="$(resolve_catalog_file 2>/dev/null || true)"
+  [[ -n "$catalog_file" && -f "$catalog_file" ]] || return 0
+
+  local res
+  res="$(jq -r --arg p "$provider" --arg m "$model" \
+    'try ((.providers[$p].models // {}) as $models | (($models[$m] // ([ $models[] | select(.aliases[]? == $m) ][0])) // empty) | .minCliVersion // empty) catch empty' \
+    "$catalog_file" 2>/dev/null || true)"
+  if [[ -n "$res" ]]; then
+    printf '%s\n' "$res"
+  fi
+}
+
+# shellcheck disable=SC2329
+catalog_model_successor() {
+  local provider="${1:-}" model="${2:-}"
+  [[ -z "$provider" || -z "$model" ]] && return 0
+  command -v jq >/dev/null 2>&1 || return 0
+  local catalog_file
+  catalog_file="$(resolve_catalog_file 2>/dev/null || true)"
+  [[ -n "$catalog_file" && -f "$catalog_file" ]] || return 0
+
+  local res
+  res="$(jq -r --arg p "$provider" --arg m "$model" \
+    'try ((.providers[$p].models // {}) as $models | (($models[$m] // ([ $models[] | select(.aliases[]? == $m) ][0])) // empty) | .successor // empty) catch empty' \
+    "$catalog_file" 2>/dev/null || true)"
+  if [[ -n "$res" ]]; then
+    printf '%s\n' "$res"
+  fi
+}
+
+# shellcheck disable=SC2329
+catalog_model_label() {
+  local provider="${1:-}" model="${2:-}"
+  if [[ -z "$model" ]]; then
+    return 0
+  fi
+  if [[ -z "$provider" ]] || ! command -v jq >/dev/null 2>&1; then
+    printf '%s\n' "$model"
+    return 0
+  fi
+  local catalog_file
+  catalog_file="$(resolve_catalog_file 2>/dev/null || true)"
+  if [[ -z "$catalog_file" || ! -f "$catalog_file" ]]; then
+    printf '%s\n' "$model"
+    return 0
+  fi
+
+  local res
+  res="$(jq -r --arg p "$provider" --arg m "$model" \
+    'try ((.providers[$p].models // {}) as $models | (($models[$m] // ([ $models[] | select(.aliases[]? == $m) ][0])) // empty) | .label // empty) catch empty' \
+    "$catalog_file" 2>/dev/null || true)"
+  if [[ -n "$res" ]]; then
+    printf '%s\n' "$res"
+  else
+    printf '%s\n' "$model"
+  fi
+}
+
+# Select a Codex fallback only within the same named model variant. For example,
+# a configured `gpt-6-sol` rejected by the account may fall back to
+# `gpt-5.6-sol`; it must not silently change to `astra`, `terra`, or `luna`.
+# The account-local Codex cache is preferred because it reflects models the
+# installed CLI currently advertises. Ralph's active catalog entries are an
+# offline fallback when that cache is absent or malformed.
+codex_equivalent_fallback() {
+  local requested="${1:-}"
+  [[ -z "$requested" ]] && return 0
+
+  local variant="${requested##*-}"
+  [[ "$variant" == "$requested" ]] && return 0
+
+  local suffix="-$variant"
+  local cache_file="${CODEX_HOME:-$HOME/.codex}/models_cache.json"
+  local fallback=""
+
+  if [[ -f "$cache_file" ]] && command -v jq >/dev/null 2>&1 \
+    && jq -e '.models | type == "array"' "$cache_file" >/dev/null 2>&1; then
+    fallback="$(jq -r --arg requested "$requested" --arg suffix "$suffix" '
+      [.models[]
+        | select(.slug != $requested)
+        | select((.visibility // "list") == "list")
+        | select((.supported_in_api // true) == true)
+        | select(.slug | endswith($suffix))]
+      | sort_by(.priority // 999999)
+      | .[0].slug // empty
+    ' "$cache_file" 2>/dev/null || true)"
+
+    # A valid cache is authoritative even when it contains no equivalent. In
+    # that case the account has advertised no safe fallback, so do not promote
+    # a catalog-only model into an account-availability claim.
+    [[ -n "$fallback" ]] && printf '%s\n' "$fallback"
+    return 0
+  fi
+
+  local catalog_file
+  catalog_file="$(resolve_catalog_file 2>/dev/null || true)"
+  if [[ -n "$catalog_file" && -f "$catalog_file" ]] && command -v jq >/dev/null 2>&1; then
+    fallback="$(jq -r --arg requested "$requested" --arg suffix "$suffix" '
+      try ([.providers.codex.models // {} | to_entries[]
+        | select(.key != $requested)
+        | select(.value.status == "active")
+        | select(.key | endswith($suffix))]
+        | .[0].key // empty) catch empty
+    ' "$catalog_file" 2>/dev/null || true)"
+  fi
+
+  [[ -n "$fallback" ]] && printf '%s\n' "$fallback"
+}
+
+# Model and effort resolution with explicit source tracking.
+#
+# Both resolvers are pure: given their arguments, the catalog file, and
+# tool_configured_model, they return the same answer every time with no side
+# effects. They print a tab-separated record on stdout and nothing else, so
+# callers can read fields with `IFS=$'\t' read ...` or `cut -f`.
+#
+# resolve_model prints:  "<model_id>\t<source>"
+#   source: explicit | provider-config | ralph-default | provider-default
+#
+# resolve_effort prints: "<effort_to_send>\t<source>\t<display_default>"
+#   effort_to_send: value to append to the CLI invocation; empty means Ralph
+#                   must not pass --effort/-c/--variant at all so the CLI uses
+#                   its own native default
+#   source:         explicit | provider-default
+#   display_default: catalog defaultEffort for the resolved model, surfaced
+#                   purely so the banner can print "model default (<value>)";
+#                   NEVER sent to the CLI unless the user explicitly asked
+#
+# The catalog schema does not currently flag a Ralph-wide default model, so the
+# resolve_model precedence step for `ralph-default` is skipped by design. If
+# a `ralphDefault: true` marker is added to config/models.json later, that
+# branch is the one place to wire it in.
+# shellcheck disable=SC2329
+resolve_model() {
+  local tool="${1:-}" cli_flag="${2:-}"
+  local model="" source="provider-default"
+  local configured=""
+
+  if [[ -n "$cli_flag" ]]; then
+    model="$cli_flag"
+    source="explicit"
+  else
+    configured="$(tool_configured_model "$tool" 2>/dev/null || true)"
+    if [[ -n "$configured" ]]; then
+      model="$configured"
+      source="provider-config"
+    fi
+  fi
+
+  printf '%s\t%s\n' "$model" "$source"
+}
+
+# shellcheck disable=SC2329
+resolve_effort() {
+  local tool="${1:-}" model="${2:-}" cli_flag="${3:-}" explicit="${4:-0}"
+  local effort="" source="provider-default" display_default=""
+
+  if [[ -n "$tool" && -n "$model" ]]; then
+    display_default="$(catalog_model_default_effort "$tool" "$model" 2>/dev/null || true)"
+  fi
+
+  if [[ "$explicit" == "1" ]]; then
+    effort="$cli_flag"
+    source="explicit"
+  fi
+
+  printf '%s\t%s\t%s\n' "$effort" "$source" "$display_default"
+}
+
+# validate_model_effort fails fast for catalog-known lifecycle problems BEFORE
+# the iteration loop starts, so a doomed run never burns an iteration. The
+# catalog is advisory for unknown ids (preserves today's behavior: warn and
+# run), authoritative for lifecycle (retired blocks; deprecated/superseded only
+# warn with successor when the catalog records one), and authoritative for
+# effort when the model lists a non-empty effort set AND the user passed
+# --effort explicitly.
+#
+# Prints user-facing messages on stderr and returns non-zero when the caller
+# should abort. Non-fatal lifecycle warnings return zero. Callers gate this on
+# provider: cursor/opencode/amp keep today's behavior unchanged.
+# shellcheck disable=SC2329
+validate_model_effort() {
+  local provider="${1:-}" model="${2:-}" effort="${3:-}" explicit="${4:-0}"
+  [[ -z "$provider" || -z "$model" ]] && return 0
+
+  local status efforts successor label
+  status="$(catalog_model_status "$provider" "$model" 2>/dev/null || true)"
+  if [[ -z "$status" ]]; then
+    echo "Warning: model '$model' is not in Ralph's '$provider' model catalog." >&2
+    echo "         Running it anyway — the provider has the final say." >&2
+    return 0
+  fi
+
+  label="$(catalog_model_label "$provider" "$model" 2>/dev/null || true)"
+  [[ -z "$label" ]] && label="$model"
+  successor="$(catalog_model_successor "$provider" "$model" 2>/dev/null || true)"
+
+  if [[ "$status" == "retired" ]]; then
+    echo "Error: model '$model' ($label) is marked retired in the Ralph catalog." >&2
+    if [[ -n "$successor" ]]; then
+      echo "       Successor: $successor" >&2
+    fi
+    echo "       Run 'ralph --tool $provider --list-models' for alternatives." >&2
+    return 1
+  fi
+
+  efforts="$(catalog_model_efforts "$provider" "$model" 2>/dev/null || true)"
+  if [[ "$explicit" == "1" && -n "$efforts" ]]; then
+    case " $efforts " in
+      *" $effort "*) ;;
+      *)
+        echo "Error: model '$model' does not accept effort '$effort'." >&2
+        echo "       Accepts: $efforts" >&2
+        return 1
+        ;;
+    esac
+  fi
+
+  if [[ "$status" == "deprecated" ]]; then
+    echo "WARNING: model '$model' is DEPRECATED and may stop working without notice." >&2
+    if [[ -n "$successor" ]]; then
+      echo "         Successor: $successor" >&2
+    fi
+  elif [[ "$status" == "superseded" ]]; then
+    echo "Notice: model '$model' is superseded." >&2
+    if [[ -n "$successor" ]]; then
+      echo "        Successor: $successor" >&2
+    fi
+  fi
+
+  return 0
+}
+
+# Extract and compare dotted numeric CLI versions without relying on GNU
+# `sort -V` (Ralph also runs on macOS). Version detection is deliberately
+# best-effort: if either side cannot be parsed, callers skip the gate rather
+# than risk rejecting a usable CLI.
+extract_numeric_version() {
+  printf '%s\n' "${1:-}" | grep -Eo '[0-9]+([.][0-9]+)+' | head -n 1 || true
+}
+
+version_is_older() {
+  local installed="${1:-}" required="${2:-}"
+  [[ "$installed" =~ ^[0-9]+([.][0-9]+)*$ ]] || return 1
+  [[ "$required" =~ ^[0-9]+([.][0-9]+)*$ ]] || return 1
+
+  local -a installed_parts required_parts
+  local length index installed_part required_part
+  IFS='.' read -r -a installed_parts <<< "$installed"
+  IFS='.' read -r -a required_parts <<< "$required"
+  length="${#installed_parts[@]}"
+  if (( ${#required_parts[@]} > length )); then
+    length="${#required_parts[@]}"
+  fi
+
+  for ((index = 0; index < length; index++)); do
+    installed_part="${installed_parts[index]:-0}"
+    required_part="${required_parts[index]:-0}"
+    if (( 10#$installed_part < 10#$required_part )); then
+      return 0
+    fi
+    if (( 10#$installed_part > 10#$required_part )); then
+      return 1
+    fi
+  done
+
+  return 1
+}
+
+tool_cli_version() {
+  local provider="${1:-}" binary version_output
+  binary="$(tool_binary_path "$provider" 2>/dev/null || true)"
+  [[ -n "$binary" ]] || return 0
+  version_output="$("$binary" --version 2>/dev/null || true)"
+  extract_numeric_version "$version_output"
+}
+
+# Validate capabilities that depend on the locally installed CLI. This runs
+# after binary presence checks and before the iteration loop. Missing version
+# output is not an error; an explicit Claude effort on a CLI whose help does
+# not advertise --effort is, because sending the flag would be guaranteed to
+# fail.
+validate_cli_capabilities() {
+  local provider="${1:-}" model="${2:-}" effort_explicit="${3:-0}"
+
+  if [[ "$provider" == "claude" && "$effort_explicit" == "1" ]]; then
+    if ! claude --help 2>/dev/null \
+      | grep -E -- '(^|[[:space:],])--effort([=[:space:]<]|$)' >/dev/null; then
+      echo "Error: the installed Claude CLI does not advertise --effort support." >&2
+      echo "       Upgrade Claude Code or run without --effort." >&2
+      return 1
+    fi
+  fi
+
+  [[ -n "$model" ]] || return 0
+
+  local minimum_raw minimum installed
+  minimum_raw="$(catalog_model_min_cli_version "$provider" "$model" 2>/dev/null || true)"
+  [[ -n "$minimum_raw" ]] || return 0
+  minimum="$(extract_numeric_version "$minimum_raw")"
+  [[ -n "$minimum" ]] || return 0
+  installed="$(tool_cli_version "$provider")"
+  [[ -n "$installed" ]] || return 0
+
+  if version_is_older "$installed" "$minimum"; then
+    echo "Error: model '$model' requires $provider CLI $minimum or newer." >&2
+    echo "       Installed: $installed" >&2
+    return 1
+  fi
+
+  return 0
 }
 
 # Cursor has no --effort flag: effort rides inside the model string as a bracket
@@ -413,12 +884,110 @@ tool_binary_path() {
   esac
 }
 
+model_list_contains() {
+  local models="${1:-}" candidate="${2:-}"
+  [[ -n "$candidate" ]] || return 1
+  case " $models " in
+    *" $candidate "*) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
+catalog_model_is_advertised() {
+  local provider="$1" model="$2" advertised="$3"
+  model_list_contains "$advertised" "$model" && return 0
+
+  local aliases
+  aliases="$(catalog_model_aliases "$provider" "$model" 2>/dev/null || true)"
+  local alias
+  for alias in $aliases; do
+    model_list_contains "$advertised" "$alias" && return 0
+  done
+  return 1
+}
+
+runtime_model_is_cataloged() {
+  local provider="$1" runtime_model="$2" catalog_models="$3"
+  local catalog_model
+  for catalog_model in $catalog_models; do
+    if [[ "$runtime_model" == "$catalog_model" ]] || \
+      model_list_contains "$(catalog_model_aliases "$provider" "$catalog_model" 2>/dev/null || true)" "$runtime_model"; then
+      return 0
+    fi
+  done
+  return 1
+}
+
+print_legacy_tool_models() {
+  local tool="$1" configured="$2" advertised="$3"
+
+  if [[ -n "$configured" ]]; then
+    printf '    configured default : %s\n' "$configured"
+  fi
+
+  if [[ -n "${advertised// /}" ]]; then
+    printf '    advertised by CLI  : %s\n' "${advertised% }"
+  fi
+
+  if [[ -z "$configured" && -z "${advertised// /}" ]]; then
+    printf '    %s\n' "no model list available from this CLI — any value is passed through"
+  fi
+
+  if tool_supports_effort "$tool"; then
+    printf '    effort             : %s  (via %s)\n' \
+      "$(tool_effort_values "$tool")" "$(tool_effort_mechanism "$tool")"
+  else
+    printf '    effort             : not supported by this CLI\n'
+  fi
+}
+
+print_catalog_tool_models() {
+  local tool="$1" configured="$2" advertised="$3" catalog_models="$4"
+  local model status efforts default_effort aliases marker
+  local configured_known=0 runtime_only="" catalog_only=""
+
+  printf '      %-30s %-12s %-27s %s\n' "MODEL" "STATUS" "EFFORTS" "DEFAULT"
+  for model in $catalog_models; do
+    status="$(catalog_model_status "$tool" "$model" 2>/dev/null || true)"
+    efforts="$(catalog_model_efforts "$tool" "$model" 2>/dev/null || true)"
+    default_effort="$(catalog_model_default_effort "$tool" "$model" 2>/dev/null || true)"
+    aliases="$(catalog_model_aliases "$tool" "$model" 2>/dev/null || true)"
+    marker=" "
+    if [[ -n "$configured" ]] && { [[ "$configured" == "$model" ]] || model_list_contains "$aliases" "$configured"; }; then
+      marker="*"
+      configured_known=1
+    fi
+    printf '    %s %-30s %-12s %-27s %s\n' \
+      "$marker" "$model" "${status:--}" "${efforts:--}" "${default_effort:--}"
+
+    if ! catalog_model_is_advertised "$tool" "$model" "$advertised"; then
+      catalog_only+="${catalog_only:+ }$model"
+    fi
+  done
+
+  local runtime_model
+  for runtime_model in $advertised; do
+    if ! runtime_model_is_cataloged "$tool" "$runtime_model" "$catalog_models"; then
+      runtime_only+="${runtime_only:+ }$runtime_model"
+    fi
+  done
+
+  if [[ "$configured_known" -eq 1 ]]; then
+    printf '    * configured/default model\n'
+  elif [[ -n "$configured" ]]; then
+    printf '    configured default : %s (not in catalog)\n' "$configured"
+  fi
+  [[ -n "$runtime_only" ]] && printf '    Runtime discovered: %s\n' "$runtime_only"
+  [[ -n "$catalog_only" ]] && printf '    Catalog only: %s\n' "$catalog_only"
+}
+
 print_models() {
-  local tool configured advertised installed
+  local tools="${1:-$SUPPORTED_TOOLS}"
+  local tool configured advertised installed catalog_models
 
   echo "Models"
   echo ""
-  for tool in $SUPPORTED_TOOLS; do
+  for tool in $tools; do
     if tool_binary_path "$tool" >/dev/null 2>&1; then
       installed="installed"
     else
@@ -428,24 +997,12 @@ print_models() {
     printf '  %-8s (%s)\n' "$tool" "$installed"
 
     configured="$(tool_configured_model "$tool" || true)"
-    if [[ -n "$configured" ]]; then
-      printf '    configured default : %s\n' "$configured"
-    fi
-
     advertised="$(tool_advertised_models "$tool" || true)"
-    if [[ -n "${advertised// /}" ]]; then
-      printf '    advertised by CLI  : %s\n' "${advertised% }"
-    fi
-
-    if [[ -z "$configured" && -z "${advertised// /}" ]]; then
-      printf '    %s\n' "no model list available from this CLI — any value is passed through"
-    fi
-
-    if tool_supports_effort "$tool"; then
-      printf '    effort             : %s  (via %s)\n' \
-        "$(tool_effort_values "$tool")" "$(tool_effort_mechanism "$tool")"
+    catalog_models="$(catalog_provider_models "$tool" 2>/dev/null || true)"
+    if [[ -n "$catalog_models" ]]; then
+      print_catalog_tool_models "$tool" "$configured" "$advertised" "$catalog_models"
     else
-      printf '    effort             : not supported by this CLI\n'
+      print_legacy_tool_models "$tool" "$configured" "$advertised"
     fi
     echo ""
   done
@@ -465,6 +1022,8 @@ EOF
 
 # Parse arguments
 TOOL="amp"  # Default to amp for backwards compatibility
+TOOL_EXPLICIT=0
+LIST_MODELS=0
 MAX_ITERATIONS=10
 EFFORT="medium"
 EFFORT_EXPLICIT=0
@@ -479,30 +1038,32 @@ while [[ $# -gt 0 ]]; do
       ;;
     --claude)
       TOOL="claude"
+      TOOL_EXPLICIT=1
       shift
       ;;
     --amp)
       TOOL="amp"
-      shift
-      ;;
-    --gemini)
-      TOOL="gemini"
+      TOOL_EXPLICIT=1
       shift
       ;;
     --codex)
       TOOL="codex"
+      TOOL_EXPLICIT=1
       shift
       ;;
     --agy)
       TOOL="agy"
+      TOOL_EXPLICIT=1
       shift
       ;;
     --cursor)
       TOOL="cursor"
+      TOOL_EXPLICIT=1
       shift
       ;;
     --opencode)
       TOOL="opencode"
+      TOOL_EXPLICIT=1
       shift
       ;;
     --tool)
@@ -512,10 +1073,12 @@ while [[ $# -gt 0 ]]; do
         exit 1
       fi
       TOOL="$2"
+      TOOL_EXPLICIT=1
       shift 2
       ;;
     --tool=*)
       TOOL="${1#*=}"
+      TOOL_EXPLICIT=1
       shift
       ;;
     --effort)
@@ -546,8 +1109,8 @@ while [[ $# -gt 0 ]]; do
       shift
       ;;
     --list-models)
-      print_models
-      exit 0
+      LIST_MODELS=1
+      shift
       ;;
     -v|--verbose)
       VERBOSE=1
@@ -566,6 +1129,17 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
+SCRIPT_DIR="$(resolve_script_dir)"
+
+# Resolve the selected model for validation without forcing a configured model
+# back onto the provider command line. An explicit --model remains in MODEL;
+# MODEL_RESOLVED may also name the provider's configured default, which lets
+# lifecycle checks protect implicit/default runs while the CLI still owns its
+# native model-selection behavior.
+MODEL_RECORD="$(resolve_model "$TOOL" "$MODEL" 2>/dev/null || true)"
+MODEL_RESOLVED="$(printf '%s' "$MODEL_RECORD" | cut -f1)"
+MODEL_SOURCE="$(printf '%s' "$MODEL_RECORD" | cut -f2)"
+
 # Validate tool choice
 case " $SUPPORTED_TOOLS " in
   *" $TOOL "*) ;;
@@ -574,6 +1148,15 @@ case " $SUPPORTED_TOOLS " in
     exit 1
     ;;
 esac
+
+if [[ "$LIST_MODELS" -eq 1 ]]; then
+  if [[ "$TOOL_EXPLICIT" -eq 1 ]]; then
+    print_models "$TOOL"
+  else
+    print_models
+  fi
+  exit 0
+fi
 
 # Effort is validated against what the chosen tool accepts, not against a single
 # global list. A level one tool understands and another does not is an error
@@ -603,7 +1186,15 @@ fi
 # Model is only soft-checked. Where a CLI can enumerate its models, a value
 # outside that list is worth flagging — but a full model id is frequently valid
 # without being advertised, so this warns and runs rather than refusing.
-if [[ -n "$MODEL" ]]; then
+#
+# A model the catalog already recognizes for this provider is skipped here:
+# tool_advertised_models only captures the handful of example aliases a CLI's
+# --help text happens to quote (e.g. 'sonnet'), not every valid full model id
+# (e.g. 'claude-sonnet-5'). Without this guard, every catalog-correct full id
+# that isn't one of those examples prints a false "not advertised" warning.
+# The catalog-driven block below still runs for claude/codex/agy and is the
+# authoritative check there; this guard only silences the noisier heuristic.
+if [[ -n "$MODEL" ]] && [[ -z "$(catalog_model_status "$TOOL" "$MODEL" 2>/dev/null || true)" ]]; then
   KNOWN_MODELS="$(tool_advertised_models "$TOOL" || true)"
   if [[ -n "${KNOWN_MODELS// /}" ]]; then
     case " $KNOWN_MODELS " in
@@ -617,7 +1208,33 @@ if [[ -n "$MODEL" ]]; then
   fi
 fi
 
-SCRIPT_DIR="$(resolve_script_dir)"
+# Catalog-driven lifecycle/effort validation (US-008). Gated on providers that
+# ship a catalog; cursor/opencode/amp are intentionally left on their legacy
+# soft-check behavior.
+case "$TOOL" in
+  claude|codex|agy)
+    if ! validate_model_effort "$TOOL" "$MODEL_RESOLVED" "$EFFORT" "$EFFORT_EXPLICIT"; then
+      exit 1
+    fi
+    ;;
+esac
+
+# Resolve the effort value Ralph will actually send to the provider CLI.
+# EFFORT_TO_SEND is empty when the user did NOT pass --effort, so no provider
+# gets a Ralph-synthesised reasoning-effort override and the CLI's own native
+# default stays authoritative. The global EFFORT="medium" default is kept only
+# as a banner/display fallback.
+#
+# resolve_effort returns three TAB-separated fields; the first one is empty on
+# an implicit effort. `read` with IFS=$'\t' still strips leading IFS-whitespace
+# (tab is whitespace by default), which would swallow that empty field and
+# promote the second column into EFFORT_TO_SEND. `cut -f1` keeps the empty
+# field intact, which is the whole point of the contract.
+EFFORT_RECORD="$(resolve_effort "$TOOL" "$MODEL_RESOLVED" "$EFFORT" "$EFFORT_EXPLICIT" 2>/dev/null || true)"
+EFFORT_TO_SEND="$(printf '%s' "$EFFORT_RECORD" | cut -f1)"
+EFFORT_SOURCE="$(printf '%s' "$EFFORT_RECORD" | cut -f2)"
+EFFORT_DISPLAY_DEFAULT="$(printf '%s' "$EFFORT_RECORD" | cut -f3)"
+
 PROJECT_ROOT="$(detect_project_root)"
 PRD_FILE="$(resolve_prd_file "$PROJECT_ROOT" || true)"
 PROGRESS_FILE="$PROJECT_ROOT/progress.txt"
@@ -637,11 +1254,6 @@ fi
 
 if [[ "$TOOL" == "amp" ]] && ! command -v amp >/dev/null 2>&1; then
   echo "Error: amp is required but was not found in PATH."
-  exit 1
-fi
-
-if [[ "$TOOL" == "gemini" ]] && ! command -v gemini >/dev/null 2>&1; then
-  echo "Error: gemini is required but was not found in PATH."
   exit 1
 fi
 
@@ -666,6 +1278,17 @@ if [[ "$TOOL" == "opencode" ]]; then
     exit 1
   }
 fi
+
+# Catalog-backed CLI capability checks apply only to providers represented in
+# config/models.json. They run after binary discovery and before any iteration
+# can invoke the selected provider for work.
+case "$TOOL" in
+  claude|codex|agy)
+    if ! validate_cli_capabilities "$TOOL" "$MODEL_RESOLVED" "$EFFORT_EXPLICIT"; then
+      exit 1
+    fi
+    ;;
+esac
 
 if [[ -z "$PRD_FILE" || ! -f "$PRD_FILE" ]]; then
   echo "Error: Could not find prd.json in project root or tasks/: $PROJECT_ROOT"
@@ -718,7 +1341,6 @@ fi
 
 AMP_PROMPT_FILE_NAME="AMP.md"
 CLAUDE_PROMPT_FILE_NAME="CLAUDE.md"
-GEMINI_PROMPT_FILE_NAME="GEMINI.md"
 CODEX_PROMPT_FILE_NAME="CODEX.md"
 AGY_PROMPT_FILE_NAME="AGY.md"
 CURSOR_PROMPT_FILE_NAME="CURSOR.md"
@@ -726,7 +1348,6 @@ OPENCODE_PROMPT_FILE_NAME="OPENCODE.md"
 
 case "$TOOL" in
   claude)   PROMPT_FILE_NAME="$CLAUDE_PROMPT_FILE_NAME" ;;
-  gemini)   PROMPT_FILE_NAME="$GEMINI_PROMPT_FILE_NAME" ;;
   codex)    PROMPT_FILE_NAME="$CODEX_PROMPT_FILE_NAME" ;;
   amp)      PROMPT_FILE_NAME="$AMP_PROMPT_FILE_NAME" ;;
   agy)      PROMPT_FILE_NAME="$AGY_PROMPT_FILE_NAME" ;;
@@ -736,7 +1357,7 @@ esac
 
 # Resolve the driver prompt.
 #
-# Every prompt file is named after its tool — CLAUDE.md, GEMINI.md, CURSOR.md —
+# Every prompt file is named after its tool — CLAUDE.md, CURSOR.md, CODEX.md —
 # and that is the same name those tools already use for a project's own rules
 # file. A repo that ships a CLAUDE.md is publishing rules for the agent, not a
 # Ralph driver, and the agent loads that file by itself. Handing it to the loop
@@ -839,13 +1460,39 @@ if [[ -n "$MODEL" ]]; then
 else
   echo "${C_LABEL}Model:${C_RESET}        ${TOOL} default ${C_MUTED}($(tool_configured_model "$TOOL" 2>/dev/null || true))${C_RESET}"
 fi
-if [[ "$TOOL" == "claude" ]]; then
+
+case "$TOOL" in
+  claude|codex|agy)
+    echo "${C_LABEL}Model source:${C_RESET} ${C_VALUE}$MODEL_SOURCE${C_RESET}"
+    MODEL_STATUS="$(catalog_model_status "$TOOL" "$MODEL_RESOLVED" 2>/dev/null || true)"
+    if [[ -n "$MODEL_STATUS" ]]; then
+      echo "${C_LABEL}Model status:${C_RESET} ${C_VALUE}$MODEL_STATUS${C_RESET}"
+    fi
+    ;;
+esac
+
+if tool_supports_effort "$TOOL" && [[ "$EFFORT_EXPLICIT" -eq 1 ]]; then
   echo "${C_LABEL}Effort:${C_RESET}       $EFFORT"
-elif tool_supports_effort "$TOOL" && [[ "$EFFORT_EXPLICIT" -eq 1 ]]; then
-  echo "${C_LABEL}Effort:${C_RESET}       $EFFORT"
+elif tool_supports_effort "$TOOL" && [[ -n "$EFFORT_DISPLAY_DEFAULT" ]]; then
+  echo "${C_LABEL}Effort:${C_RESET}       model default ${C_MUTED}($EFFORT_DISPLAY_DEFAULT)${C_RESET}"
 elif tool_supports_effort "$TOOL"; then
   echo "${C_LABEL}Effort:${C_RESET}       ${TOOL} default ${C_MUTED}(no --effort given)${C_RESET}"
 fi
+
+case "$TOOL" in
+  claude|codex|agy)
+    echo "${C_LABEL}Effort source:${C_RESET} ${C_VALUE}$EFFORT_SOURCE${C_RESET}"
+    SUPPORTED_EFFORTS="$(catalog_model_efforts "$TOOL" "$MODEL_RESOLVED" 2>/dev/null || true)"
+    if [[ -n "$SUPPORTED_EFFORTS" ]]; then
+      echo "${C_LABEL}Supported:${C_RESET}    ${C_VALUE}$SUPPORTED_EFFORTS${C_RESET}"
+    fi
+    CLI_VERSION="$(tool_cli_version "$TOOL")"
+    if [[ -n "$CLI_VERSION" ]]; then
+      echo "${C_LABEL}CLI version:${C_RESET}  ${C_VALUE}$CLI_VERSION${C_RESET}"
+    fi
+    ;;
+esac
+
 RUNNING_BRANCH="$(jq -r '.branchName // empty' "$PRD_FILE" 2>/dev/null || true)"
 if [[ -n "$RUNNING_BRANCH" ]]; then
   echo "${C_LABEL}Target branch:${C_RESET} ${C_ACCENT}$RUNNING_BRANCH${C_RESET}"
@@ -866,6 +1513,21 @@ else
   TEE_TARGET="/dev/null"
 fi
 
+# Shared by pre-retry gating and post-run halt classification. A quota or auth
+# failure must never trigger model fallback: changing models cannot fix account
+# state and would only spend another request.
+QUOTA_RE='(usage limit|quota reached|quota exceeded|rate limit|reached your limit|limit reached|limit exceeded|too many requests|upgrade to pro|purchase more credits|please upgrade your subscription|please sign in|not authenticated|not logged in|authentication (failed|required)|invalid api key|unauthorized|insufficient credit|payment required|429|resets in [0-9]+h|try again at [0-9])'
+
+# Neutralize session-wide output-compression plugins in the agent subprocess.
+# The Claude Code "caveman" plugin, when installed, activates on every
+# SessionStart (including `claude --print`) and shrinks responses to a few
+# fragments — long enough to look like a provider abort to Ralph's post-run
+# halt classifier, short enough that no story work actually happens. Setting
+# CAVEMAN_DEFAULT_MODE=off disables it just for this subprocess tree while
+# leaving the user's interactive terminal sessions untouched. Honor a value
+# the user set themselves so a deliberate override still wins.
+export CAVEMAN_DEFAULT_MODE="${CAVEMAN_DEFAULT_MODE:-off}"
+
 for i in $(seq 1 $MAX_ITERATIONS); do
   echo ""
   echo "==============================================================="
@@ -878,50 +1540,96 @@ for i in $(seq 1 $MAX_ITERATIONS); do
   # silently overrode the user's own configured default and went stale every
   # time a new model shipped. With no --model, each CLI uses its own default.
   ITER_START=$SECONDS
+  PROVIDER_EXIT_STATUS=0
   if [[ "$TOOL" == "amp" ]]; then
     AMP_ARGS=(--dangerously-allow-all)
     [[ -n "$MODEL" ]] && AMP_ARGS+=(--model "$MODEL")
-    OUTPUT=$(amp "${AMP_ARGS[@]}" < "$PROMPT_FILE" 2>&1 | tee "$TEE_TARGET") || true
+    OUTPUT=$(amp "${AMP_ARGS[@]}" < "$PROMPT_FILE" 2>&1 | tee "$TEE_TARGET") || PROVIDER_EXIT_STATUS=$?
   elif [[ "$TOOL" == "claude" ]]; then
-    # Claude Code: --dangerously-skip-permissions for autonomous operation, --print for output
-    CLAUDE_ARGS=(--effort "$EFFORT" --dangerously-skip-permissions --print)
+    # Claude Code: --dangerously-skip-permissions for autonomous operation, --print for output.
+    # --effort is only forwarded when the user asked for one; otherwise Claude uses
+    # its own per-model native default instead of Ralph silently forcing medium.
+    CLAUDE_ARGS=(--dangerously-skip-permissions --print)
     [[ -n "$MODEL" ]] && CLAUDE_ARGS+=(--model "$MODEL")
-    OUTPUT=$(claude "${CLAUDE_ARGS[@]}" < "$PROMPT_FILE" 2>&1 | tee "$TEE_TARGET") || true
+    [[ -n "$EFFORT_TO_SEND" ]] && CLAUDE_ARGS+=(--effort "$EFFORT_TO_SEND")
+    OUTPUT=$(claude "${CLAUDE_ARGS[@]}" < "$PROMPT_FILE" 2>&1 | tee "$TEE_TARGET") || PROVIDER_EXIT_STATUS=$?
   elif [[ "$TOOL" == "agy" ]]; then
-    # Antigravity: same shape as claude — --print reads the prompt from stdin.
-    AGY_ARGS=(--print --dangerously-skip-permissions)
+    # Antigravity: --print takes the prompt as its own value (space- or
+    # `=`-attached) — it does not read stdin. Piping the prompt via
+    # `< "$PROMPT_FILE"` (the old shape here) makes a bare `--print` consume
+    # the next flag's name as the prompt instead, so the real driver prompt
+    # is never read and the run fails on every iteration without doing any
+    # work. Confirmed against the installed agy CLI (1.2.14).
+    AGY_ARGS=(--print "$(<"$PROMPT_FILE")" --dangerously-skip-permissions)
     [[ -n "$MODEL" ]] && AGY_ARGS+=(--model "$MODEL")
-    [[ "$EFFORT_EXPLICIT" -eq 1 ]] && AGY_ARGS+=(--effort "$EFFORT")
-    OUTPUT=$(agy "${AGY_ARGS[@]}" < "$PROMPT_FILE" 2>&1 | tee "$TEE_TARGET") || true
+    [[ -n "$EFFORT_TO_SEND" ]] && AGY_ARGS+=(--effort "$EFFORT_TO_SEND")
+    OUTPUT=$(agy "${AGY_ARGS[@]}" 2>&1 | tee "$TEE_TARGET") || PROVIDER_EXIT_STATUS=$?
   elif [[ "$TOOL" == "cursor" ]]; then
     # cursor-agent takes the prompt as a positional argument, and carries effort
     # inside the model string rather than as its own flag.
     CURSOR_ARGS=(--print --force)
     CURSOR_MODEL="$(cursor_model_argument "$MODEL" "$EFFORT_EXPLICIT" "$EFFORT")"
     [[ -n "$CURSOR_MODEL" ]] && CURSOR_ARGS+=(--model "$CURSOR_MODEL")
-    OUTPUT=$(cursor-agent "${CURSOR_ARGS[@]}" "$(<"$PROMPT_FILE")" 2>&1 | tee "$TEE_TARGET") || true
+    OUTPUT=$(cursor-agent "${CURSOR_ARGS[@]}" "$(<"$PROMPT_FILE")" 2>&1 | tee "$TEE_TARGET") || PROVIDER_EXIT_STATUS=$?
   elif [[ "$TOOL" == "opencode" ]]; then
     # opencode run takes the prompt positionally; effort is --variant, and model
     # ids are provider-qualified (provider/model).
     OPENCODE_ARGS=(run --auto)
     [[ -n "$MODEL" ]] && OPENCODE_ARGS+=(--model "$MODEL")
     [[ "$EFFORT_EXPLICIT" -eq 1 ]] && OPENCODE_ARGS+=(--variant "$EFFORT")
-    OUTPUT=$("$OPENCODE_BIN" "${OPENCODE_ARGS[@]}" "$(<"$PROMPT_FILE")" 2>&1 | tee "$TEE_TARGET") || true
-  elif [[ "$TOOL" == "gemini" ]]; then
-    # Gemini CLI has no effort knob; --approval-mode yolo is the current spelling
-    # of the old -y/--yolo flag. Superseded by agy (Antigravity) — kept for
-    # anyone still on gemini-cli.
-    GEMINI_ARGS=(--approval-mode yolo)
-    [[ -n "$MODEL" ]] && GEMINI_ARGS+=(--model "$MODEL")
-    OUTPUT=$(gemini "${GEMINI_ARGS[@]}" --prompt "$(<"$PROMPT_FILE")" 2>&1 | tee "$TEE_TARGET") || true
+    OUTPUT=$("$OPENCODE_BIN" "${OPENCODE_ARGS[@]}" "$(<"$PROMPT_FILE")" 2>&1 | tee "$TEE_TARGET") || PROVIDER_EXIT_STATUS=$?
   else
     # Codex has no --effort flag: reasoning effort is a config key, overridden
     # per-run with -c. Only sent when the user asked for one, so the value in
     # ~/.codex/config.toml stays authoritative otherwise.
-    CODEX_ARGS=(exec --dangerously-bypass-approvals-and-sandbox -C "$PROJECT_ROOT")
+    #
+    # `codex exec` echoes the entire input prompt back into stdout as part of
+    # its own transcript before any assistant turn runs. Every Ralph driver
+    # prompt documents the stop sentinel as literal text (it explains when to
+    # emit it), so that echo always contains `<promise>COMPLETE</promise>` —
+    # grepping the raw stream reports completion on iteration 1 regardless of
+    # whether any real work happened. `-o` writes ONLY the agent's actual
+    # final message to a file; the completion check below reads that instead
+    # of $OUTPUT for this tool.
+    CODEX_LAST_MSG_FILE="$(mktemp)"
+    CODEX_ARGS=(exec --dangerously-bypass-approvals-and-sandbox -C "$PROJECT_ROOT" -o "$CODEX_LAST_MSG_FILE")
     [[ -n "$MODEL" ]] && CODEX_ARGS+=(--model "$MODEL")
-    [[ "$EFFORT_EXPLICIT" -eq 1 ]] && CODEX_ARGS+=(-c "model_reasoning_effort=\"$EFFORT\"")
-    OUTPUT=$(codex "${CODEX_ARGS[@]}" - < "$PROMPT_FILE" 2>&1 | tee "$TEE_TARGET") || true
+    [[ -n "$EFFORT_TO_SEND" ]] && CODEX_ARGS+=(-c "model_reasoning_effort=\"$EFFORT_TO_SEND\"")
+    OUTPUT=$(codex "${CODEX_ARGS[@]}" - < "$PROMPT_FILE" 2>&1 | tee "$TEE_TARGET") || PROVIDER_EXIT_STATUS=$?
+
+    # A configured/default Codex model can be advertised by the local CLI yet
+    # rejected by the current ChatGPT account. Retry once with the same named
+    # variant from the account-local model cache (sol -> sol). Explicit
+    # --model remains authoritative, and quota/auth failures never retry.
+    if [[ "$PROVIDER_EXIT_STATUS" -ne 0 && -z "$MODEL" ]] \
+      && ! printf '%s\n' "$OUTPUT" | grep -qiE "$QUOTA_RE"; then
+      CODEX_REJECTED_MODEL="$(printf '%s\n' "$OUTPUT" \
+        | sed -n "s/.*The '\([^']*\)' model is not supported when using Codex with a ChatGPT account.*/\1/p" \
+        | head -1)"
+      CODEX_FALLBACK_MODEL="$(codex_equivalent_fallback "$CODEX_REJECTED_MODEL")"
+
+      if [[ -n "$CODEX_FALLBACK_MODEL" ]]; then
+        echo "Codex model '$CODEX_REJECTED_MODEL' is unavailable for this account."
+        echo "Retrying once with equivalent model '$CODEX_FALLBACK_MODEL'."
+
+        : > "$CODEX_LAST_MSG_FILE"
+        CODEX_FALLBACK_ARGS=(exec --dangerously-bypass-approvals-and-sandbox -C "$PROJECT_ROOT" -o "$CODEX_LAST_MSG_FILE" --model "$CODEX_FALLBACK_MODEL")
+        [[ -n "$EFFORT_TO_SEND" ]] && CODEX_FALLBACK_ARGS+=(-c "model_reasoning_effort=\"$EFFORT_TO_SEND\"")
+        PROVIDER_EXIT_STATUS=0
+        CODEX_FALLBACK_OUTPUT=$(codex "${CODEX_FALLBACK_ARGS[@]}" - < "$PROMPT_FILE" 2>&1 | tee "$TEE_TARGET") || PROVIDER_EXIT_STATUS=$?
+        OUTPUT+=$'\n'"$CODEX_FALLBACK_OUTPUT"
+      fi
+    fi
+  fi
+
+  # The completion check below must grep the agent's actual final turn, not
+  # necessarily the full captured stream. codex is the one tool whose stream
+  # always contains the sentinel from its own prompt echo (see above) — its
+  # real answer lives in the file `-o` wrote, not in $OUTPUT.
+  COMPLETION_CHECK_TEXT="$OUTPUT"
+  if [[ "$TOOL" == "codex" ]]; then
+    COMPLETION_CHECK_TEXT="$(cat "$CODEX_LAST_MSG_FILE" 2>/dev/null || true)"
+    rm -f "$CODEX_LAST_MSG_FILE"
   fi
   
   ITER_ELAPSED=$((SECONDS - ITER_START))
@@ -941,17 +1649,28 @@ for i in $(seq 1 $MAX_ITERATIONS); do
   # emits kilobytes; a quota-bounced run exits in a few seconds with almost
   # nothing on the wire. Threshold intentionally generous (fewer false
   # halts) — a run that legitimately no-ops fast is rare and re-runnable.
-  QUOTA_RE='(usage limit|quota reached|quota exceeded|rate limit|reached your limit|limit reached|limit exceeded|too many requests|upgrade to pro|purchase more credits|please upgrade your subscription|please sign in|not authenticated|not logged in|authentication (failed|required)|invalid api key|unauthorized|insufficient credit|payment required|429|resets in [0-9]+h|try again at [0-9])'
   ITER_MIN_SECONDS=15
   OUTPUT_MIN_BYTES=500
-  QUOTA_LINE=""
+  HALT_SIGNAL=""
   HALT_REASON=""
 
-  if echo "$OUTPUT" | grep -qiE "$QUOTA_RE"; then
-    QUOTA_LINE=$(echo "$OUTPUT" | grep -iE "$QUOTA_RE" | head -1)
+  if printf '%s\n' "$OUTPUT" | grep -qiE "$QUOTA_RE"; then
+    HALT_SIGNAL=$(printf '%s\n' "$OUTPUT" | grep -iE "$QUOTA_RE" | head -1)
     HALT_REASON="quota/auth message in stream"
+    if [[ "$PROVIDER_EXIT_STATUS" -ne 0 ]]; then
+      HALT_REASON+="; provider exited with status $PROVIDER_EXIT_STATUS"
+    fi
+  elif [[ "$PROVIDER_EXIT_STATUS" -ne 0 ]]; then
+    HALT_SIGNAL=$(printf '%s\n' "$OUTPUT" \
+      | grep -iE 'error|failed|failure|invalid|unsupported|denied|forbidden|unavailable' \
+      | tail -1 || true)
+    if [[ -z "$HALT_SIGNAL" ]]; then
+      HALT_SIGNAL=$(printf '%s\n' "$OUTPUT" | awk 'NF { line=$0 } END { print line }')
+    fi
+    [[ -z "$HALT_SIGNAL" ]] && HALT_SIGNAL="(provider produced no diagnostic output)"
+    HALT_REASON="provider exited with status $PROVIDER_EXIT_STATUS"
   elif [[ "$ITER_ELAPSED" -lt "$ITER_MIN_SECONDS" && "$OUTPUT_BYTES" -lt "$OUTPUT_MIN_BYTES" ]]; then
-    QUOTA_LINE="(none captured — provider likely suppressed the warning when stdout was not a TTY)"
+    HALT_SIGNAL="(none captured — provider likely suppressed the warning when stdout was not a TTY)"
     HALT_REASON="iteration ended in ${ITER_ELAPSED}s with only ${OUTPUT_BYTES} bytes of output (real iterations take minutes and emit kilobytes)"
   fi
 
@@ -969,9 +1688,10 @@ for i in $(seq 1 $MAX_ITERATIONS); do
       echo "${R}${B}  ⛔ Ralph halted: provider '$TOOL' aborted iteration $i.${N}"
       echo "${R}===============================================================${N}"
       echo "${Y}  Reason:${N} $HALT_REASON"
-      echo "${Y}  Signal:${N} ${R}${QUOTA_LINE}${N}"
+      echo "${Y}  Signal:${N} ${R}${HALT_SIGNAL}${N}"
       echo ""
-      echo "  No real work happened on this iteration. Most common causes:"
+      echo "  Provider did not complete cleanly. Ralph stopped before starting"
+      echo "  another iteration. Most common causes:"
       echo "    - account quota / rate limit hit"
       echo "    - session expired / not authenticated"
       echo "    - provider CLI crashed on startup"
@@ -984,7 +1704,7 @@ for i in $(seq 1 $MAX_ITERATIONS); do
   fi
 
   # Check for completion signal
-  if echo "$OUTPUT" | grep -q "<promise>COMPLETE</promise>"; then
+  if echo "$COMPLETION_CHECK_TEXT" | grep -q "<promise>COMPLETE</promise>"; then
     echo ""
     echo "Ralph completed all tasks!"
     echo "Completed at iteration $i of $MAX_ITERATIONS"
