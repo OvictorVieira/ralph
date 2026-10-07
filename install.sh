@@ -7,7 +7,7 @@ INSTALL_ROOT="${RALPH_INSTALL_ROOT:-$HOME/.local}"
 BIN_DIR="$INSTALL_ROOT/bin"
 SHARE_DIR="$INSTALL_ROOT/share/ralph"
 
-mkdir -p "$BIN_DIR" "$SHARE_DIR"
+mkdir -p "$BIN_DIR" "$SHARE_DIR" "$SHARE_DIR/config"
 
 install -m 755 "$SCRIPT_DIR/ralph.sh" "$SHARE_DIR/ralph.sh"
 install -m 644 "$SCRIPT_DIR/AMP.md" "$SHARE_DIR/AMP.md"
@@ -17,6 +17,7 @@ install -m 644 "$SCRIPT_DIR/AGY.md" "$SHARE_DIR/AGY.md"
 install -m 644 "$SCRIPT_DIR/CURSOR.md" "$SHARE_DIR/CURSOR.md"
 install -m 644 "$SCRIPT_DIR/OPENCODE.md" "$SHARE_DIR/OPENCODE.md"
 install -m 644 "$SCRIPT_DIR/prd.json.example" "$SHARE_DIR/prd.json.example"
+install -m 644 "$SCRIPT_DIR/config/models.json" "$SHARE_DIR/config/models.json"
 install -m 755 "$SCRIPT_DIR/bin/ralph" "$BIN_DIR/ralph"
 
 echo "Ralph installed."
