@@ -1518,6 +1518,16 @@ fi
 # state and would only spend another request.
 QUOTA_RE='(usage limit|quota reached|quota exceeded|rate limit|reached your limit|limit reached|limit exceeded|too many requests|upgrade to pro|purchase more credits|please upgrade your subscription|please sign in|not authenticated|not logged in|authentication (failed|required)|invalid api key|unauthorized|insufficient credit|payment required|429|resets in [0-9]+h|try again at [0-9])'
 
+# Neutralize session-wide output-compression plugins in the agent subprocess.
+# The Claude Code "caveman" plugin, when installed, activates on every
+# SessionStart (including `claude --print`) and shrinks responses to a few
+# fragments — long enough to look like a provider abort to Ralph's post-run
+# halt classifier, short enough that no story work actually happens. Setting
+# CAVEMAN_DEFAULT_MODE=off disables it just for this subprocess tree while
+# leaving the user's interactive terminal sessions untouched. Honor a value
+# the user set themselves so a deliberate override still wins.
+export CAVEMAN_DEFAULT_MODE="${CAVEMAN_DEFAULT_MODE:-off}"
+
 for i in $(seq 1 $MAX_ITERATIONS); do
   echo ""
   echo "==============================================================="

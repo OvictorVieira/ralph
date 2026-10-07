@@ -60,6 +60,35 @@ setup() {
   assert_argv_pair "$CALLS_DIR/amp.args" --model known-amp-model
 }
 
+@test "agent subprocess inherits CAVEMAN_DEFAULT_MODE=off by default" {
+  # The Claude Code caveman plugin activates on every SessionStart and
+  # shrinks agent output to fragments. Ralph must disable it for the agent
+  # subprocess so iterations do real work instead of looking like aborts.
+  run_ralph claude --model known-claude 1
+
+  assert_successful_run
+  grep -Fqx "CAVEMAN_DEFAULT_MODE=off" "$CALLS_DIR/claude.env"
+}
+
+@test "an explicitly set CAVEMAN_DEFAULT_MODE is forwarded unchanged" {
+  # Bypass run_ralph here so we can seed CAVEMAN_DEFAULT_MODE in the exact
+  # env ralph.sh observes, rather than relying on bats variable scoping.
+  run env \
+    HOME="$FAKE_HOME" \
+    PATH="$FAKE_BIN:$PATH" \
+    FAKE_PROVIDER_CALLS_DIR="$CALLS_DIR" \
+    FAKE_DISCOVERY_FAIL=0 \
+    FAKE_CODEX_MODE=success \
+    RALPH_CATALOG_FILE="$CATALOG_FILE" \
+    RALPH_PROJECT_ROOT="$PROJECT_ROOT" \
+    RALPH_PROMPT_FILE="$PROMPT_FILE" \
+    CAVEMAN_DEFAULT_MODE=full \
+    "$REPO_ROOT/ralph.sh" --tool claude --model known-claude 1
+
+  assert_successful_run
+  grep -Fqx "CAVEMAN_DEFAULT_MODE=full" "$CALLS_DIR/claude.env"
+}
+
 @test "cursor bakes model and effort into one override argument" {
   run_ralph cursor --model known-cursor-model --effort high 1
 

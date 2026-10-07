@@ -11,6 +11,9 @@ record_work_call() {
   [[ -f "$count_file" ]] && count="$(<"$count_file")"
   printf '%s\n' "$((count + 1))" > "$count_file"
   printf '%s\n' "$@" > "$FAKE_PROVIDER_CALLS_DIR/$provider.args"
+  # Dump the subprocess env for tests that assert on inherited variables
+  # (e.g. plugin-neutralizing CAVEMAN_DEFAULT_MODE=off).
+  env > "$FAKE_PROVIDER_CALLS_DIR/$provider.env"
 }
 
 complete_stream_run() {
